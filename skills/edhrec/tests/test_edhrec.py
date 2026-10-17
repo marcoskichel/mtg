@@ -148,7 +148,6 @@ class ExtractTest(unittest.TestCase):
         self.assertEqual(s["decks"], 595488)
         self.assertAlmostEqual(s["play_rate"], 0.1141, places=3)
         self.assertEqual(s["top_commanders"][0], "Avacyn, Angel of Horror")
-        self.assertEqual(s["themes"], ["Aristocrats"])
 
     def test_card_stats_missing_potential(self):
         page = json.loads(json.dumps(CARD_PAGE))
@@ -158,7 +157,7 @@ class ExtractTest(unittest.TestCase):
     def test_commander_stats(self):
         s = edhrec.commander_stats(CMDR_PAGE)
         self.assertEqual(s["bracket_counts"]["5"], 4120)
-        self.assertEqual(s["themes"], [("Combo", 657)])
+        self.assertEqual(s["themes"], [{"name": "Combo", "count": 657}])
         self.assertEqual(s["rank"], 192)
 
     def test_list_names_by_header(self):
@@ -249,6 +248,41 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("Niv-Mizzet, Ghost Counsel", out)
         self.assertNotIn("Fresh Guy", out)
+
+
+class JsonEnvelopeTest(CliTest):
+    """Every subcommand's --json uses {path, fetched, data}; data is null when missing."""
+
+    def test_card_json(self):
+        found = {"blood artist": {"name": "Blood Artist", "layout": "normal"},
+                 "new card": {"name": "New Card", "layout": "normal"}}
+        code, out, _ = self.run_cli(["card", "Blood Artist", "New Card", "--json"], found,
+                                    {"cards/blood-artist": CARD_PAGE})
+        rows = json.loads(out)
+        self.assertEqual(set(rows[0]), {"name", "path", "fetched", "data"})
+        self.assertEqual(rows[0]["data"]["decks"], 595488)
+        self.assertNotIn("themes", rows[0]["data"])
+        self.assertIsNone(rows[1]["data"])
+
+    def test_commander_json_and_missing(self):
+        found = {"edgar markov": {"name": "Edgar Markov", "layout": "normal"}}
+        code, out, _ = self.run_cli(["commander", "Edgar Markov", "--json"], found,
+                                    {"commanders/edgar-markov": CMDR_PAGE})
+        obj = json.loads(out)
+        self.assertEqual(obj["path"], "commanders/edgar-markov")
+        self.assertEqual(obj["data"]["themes"], [{"name": "Combo", "count": 657}])
+        code, out, _ = self.run_cli(["commander", "Edgar Markov", "--json"], found, {})
+        self.assertEqual(code, 0)
+        self.assertIsNone(json.loads(out)["data"])
+
+    def test_theme_and_partners_json(self):
+        code, out, _ = self.run_cli(["theme", "aristocrats", "--json"], {},
+                                    {"tags/aristocrats": THEME_PAGE})
+        obj = json.loads(out)
+        self.assertEqual(obj["data"][0], {"name": "Niv-Mizzet, Ghost Counsel", "decks": 45})
+        found = {"tymna the weaver": {"name": "Tymna the Weaver", "layout": "normal"}}
+        code, out, _ = self.run_cli(["partners", "Tymna the Weaver", "--json"], found, {})
+        self.assertIsNone(json.loads(out)["data"])
 
 
 if __name__ == "__main__":

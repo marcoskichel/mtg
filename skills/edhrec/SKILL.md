@@ -20,7 +20,8 @@ python3 $E theme aristocrats --colors wb
 python3 $E partners "Tymna the Weaver"
 ```
 
-`--json` on every subcommand; `--ttl 0` fetches fresh (default cache 24h,
+`--json` on every subcommand gives `{path, fetched, data}` (`card` gives a list
+of those, each with `name`); `data` is `null` when EDHREC has no page. `--ttl 0` fetches fresh (default cache 24h,
 `~/.cache/mtg-skills/edhrec/`). Every output says when the data was fetched.
 
 ## What the numbers mean

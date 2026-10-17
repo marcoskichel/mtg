@@ -163,13 +163,11 @@ def list_names(page, header=None):
 def card_stats(page):
     c = _json_dict(page).get("card") or {}
     decks, potential = c.get("num_decks"), c.get("potential_decks")
-    themes = [t.get("value") for t in (page.get("panels") or {}).get("taglinks") or []]
     return {
         "name": c.get("name"), "decks": decks, "potential": potential,
         "play_rate": decks / potential if decks is not None and potential else None,
         "salt": c.get("salt"),
         "top_commanders": [n for n, _ in list_names(page, "Top Commanders")][:5],
-        "themes": themes[:8],
     }
 
 
@@ -179,8 +177,13 @@ def commander_stats(page):
     return {
         "name": c.get("name"), "decks": c.get("num_decks"), "rank": c.get("rank"),
         "salt": c.get("salt"), "bracket_counts": page.get("bracket_counts") or {},
-        "themes": [(t.get("value"), t.get("count")) for t in tags][:10],
+        "themes": [{"name": t.get("value"), "count": t.get("count")} for t in tags][:10],
     }
+
+
+def _envelope(path, fetched, data):
+    """The one --json shape every subcommand uses; data is None when the page is missing."""
+    return {"path": path, "fetched": fetched, "data": data}
 
 
 def _fmt_int(n):
@@ -218,12 +221,12 @@ def cmd_card(args):
             blocked.append((path, str(exc)))
             continue
         stats = card_stats(page) if page else None
-        rows.append({"name": card["name"], "edhrec": stats, "fetched": fetched, "path": path})
+        rows.append({"name": card["name"], **_envelope(path, fetched, stats)})
     if args.json:
         print(json.dumps(rows, indent=2, ensure_ascii=False))
     else:
         for r in rows:
-            s = r["edhrec"]
+            s = r["data"]
             if not s:
                 print(f"{r['name']}: no EDHREC page ({r['path']})")
                 continue
@@ -234,8 +237,6 @@ def cmd_card(args):
             print(f"{r['name']}: {rate}, {salt}")
             if s["top_commanders"]:
                 print(f"  top commanders: {', '.join(s['top_commanders'])}")
-            if s["themes"]:
-                print(f"  themes: {', '.join(s['themes'])}")
             print(f"  fetched {_age(r['fetched'])}")
     _report_blocked(blocked)
     return 1 if missing or blocked else 0
@@ -253,12 +254,12 @@ def cmd_commander(args):
     except Blocked as exc:
         _report_blocked([(path, str(exc))])
         return 1
-    if not page:
-        print(f"{' + '.join(names)}: no EDHREC page ({path})")
-        return 0
-    s = commander_stats(page)
+    s = commander_stats(page) if page else None
     if args.json:
-        print(json.dumps(s, indent=2, ensure_ascii=False))
+        print(json.dumps(_envelope(path, fetched, s), indent=2, ensure_ascii=False))
+        return 0
+    if not s:
+        print(f"{' + '.join(names)}: no EDHREC page ({path})")
         return 0
     salt = f"salt {s['salt']:.2f}" if s["salt"] is not None else "salt n/a"
     print(f"{s['name']}: {_fmt_int(s['decks'])} decks, rank {s['rank']}, {salt}")
@@ -267,7 +268,8 @@ def cmd_commander(args):
         n = s["bracket_counts"][b]
         print(f"  bracket {b}: {_fmt_int(n)}" + (f" ({n / total:.0%})" if total else ""))
     if s["themes"]:
-        print("  themes: " + ", ".join(f"{v} ({_fmt_int(c)})" for v, c in s["themes"]))
+        print("  themes: " + ", ".join(f"{t['name']} ({_fmt_int(t['count'])})"
+                                       for t in s["themes"]))
     print(f"  fetched {_age(fetched)}")
     return 0
 
@@ -285,14 +287,15 @@ def cmd_theme(args):
     except Blocked as exc:
         _report_blocked([(path, str(exc))])
         return 1
+    rows = list_names(page, "Top Commanders")[:args.limit] if page else None
+    if args.json:
+        data = [{"name": n, "decks": d} for n, d in rows] if page else None
+        print(json.dumps(_envelope(path, fetched, data), indent=2, ensure_ascii=False))
     if not page:
         print(f"no EDHREC theme page {path} — check the theme name on edhrec.com/tags",
               file=sys.stderr)
         return 1
-    rows = list_names(page, "Top Commanders")[:args.limit]
     if args.json:
-        print(json.dumps([{"name": n, "decks": d} for n, d in rows], indent=2,
-                         ensure_ascii=False))
         return 0
     for n, d in rows:
         print(f"{_fmt_int(d):>8}  {n}")
@@ -310,13 +313,13 @@ def cmd_partners(args):
     except Blocked as exc:
         _report_blocked([(path, str(exc))])
         return 1
+    rows = list_names(page)[:args.limit] if page else None
+    if args.json:
+        data = [{"name": n, "decks": d} for n, d in rows] if page else None
+        print(json.dumps(_envelope(path, fetched, data), indent=2, ensure_ascii=False))
+        return 0
     if not page:
         print(f"{cards[0]['name']}: no pairings page on EDHREC ({path})")
-        return 0
-    rows = list_names(page)[:args.limit]
-    if args.json:
-        print(json.dumps([{"name": n, "decks": d} for n, d in rows], indent=2,
-                         ensure_ascii=False))
         return 0
     for n, d in rows:
         print(f"{_fmt_int(d):>8}  {n}")
