@@ -1,0 +1,33 @@
+{
+  "skill_name": "card-finder",
+  "evals": [
+    {
+      "id": 1,
+      "name": "one-sided-wipes-mardu",
+      "prompt": "my commander deck is Edgar Markov (mardu, lots of vampire tokens). I want board wipes that hit my opponents' creatures but leave mine alone, or at least hurt them way more than me. give me 5-8 good options",
+      "expected_output": "5-8 Commander-legal cards within W/B/R identity that sweep opponents' creatures while sparing or favoring yours, each backed by quoted oracle text, with any catch called out.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "cheap-draw-orzhov",
+      "prompt": "looking for card draw for my Killian, Ink Duelist deck (orzhov). needs to be mana value 3 or less, and i'd rather have stuff that keeps drawing over a one-shot. what are my best options?",
+      "expected_output": "W/B Commander-legal cards with mana value <= 3 that draw cards, repeatable engines preferred, each verified by quoted oracle text.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "land-ramp-budget",
+      "prompt": "need green ramp for a commander deck on a budget, under 2 dollars each. only stuff that puts lands onto the battlefield, no mana dorks or rocks. list like 8 picks",
+      "expected_output": "About 8 green Commander-legal spells/permanents that put land cards onto the battlefield (not creatures/artifacts that tap for mana), priced under $2 USD, each verified by quoted oracle text.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "wu-commanders-paper",
+      "prompt": "I want to build a new deck with an Azorius commander (exactly white and blue, not mono). Paper only, no Universes Beyond. what are some popular options that care about artifacts?",
+      "expected_output": "Commander-legal legendary creatures (or 'can be your commander' cards) with identity exactly W/U, available in paper, not Universes Beyond, whose text cares about artifacts; each verified by quoted oracle text; Backgrounds excluded.",
+      "files": []
+    }
+  ]
+}
