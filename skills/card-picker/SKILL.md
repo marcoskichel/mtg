@@ -45,8 +45,8 @@ python3 $P show --deck decks/saruman.txt
    | exit | stdout | do |
    |---|---|---|
    | 0 | `{"status": "picked", "picked": [{"name", "set", "collector_number"}], "note"?}` | carry out the pick; the `note` overrides your plan where they conflict |
-   | 0 | `{"status": "closed", "focused": "Name"}` | `show` ended; `focused` is the card the user ended on |
-   | 130 | `{"status": "cancelled"}` | ask in chat what they want instead |
+   | 0 | `{"status": "closed", "focused": "Name"}` | `show` ended (Done or Esc); `focused` is the card the user ended on |
+   | 130 | `{"status": "cancelled"}` | the user declined to pick: ask in chat what they want instead |
    | 124 | `{"status": "timeout"}` | ask in chat |
    | 2 | (stderr) | bad input or no card found: fix and rerun |
    | 3 | (stderr) | server failure; stderr names the log |

@@ -16,11 +16,14 @@ Card text and images come from Scryfall through skills/scryfall-cards.
 
 import argparse
 import hashlib
+import hmac
 import json
 import os
 import re
 import secrets
 import shlex
+import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -131,14 +134,13 @@ def collect_entries(args):
 # cards
 # --------------------------------------------------------------------------- #
 
-def face_view(face, flavor_from=None):
-    src = flavor_from or face
+def face_view(face):
     return {
         "name": face.get("name", ""),
         "cost": face.get("mana_cost") or "",
         "type": face.get("type_line", ""),
         "text": face.get("oracle_text") or "",
-        "flavor": src.get("flavor_text") or face.get("flavor_text"),
+        "flavor": face.get("flavor_text"),
         "power": face.get("power"),
         "toughness": face.get("toughness"),
         "loyalty": face.get("loyalty"),
@@ -150,7 +152,7 @@ def card_images(card):
     """Image URL per picture: one per face for transform/MDFC, else one."""
     faces = card.get("card_faces") or []
     if "image_uris" not in card and faces and all("image_uris" in f for f in faces):
-        return [f["image_uris"].get("normal") for f in faces]
+        return [u for u in (f["image_uris"].get("normal") for f in faces) if u]
     url = (card.get("image_uris") or {}).get("normal")
     return [url] if url else []
 
@@ -204,17 +206,20 @@ def build_answer(req, body):
     """
     cards = req["cards"]
     status = body.get("status")
+    if req["mode"] == "show":
+        # Leaving a view is never a refusal: Esc and Done both close it.
+        i = body.get("focused")
+        name = cards[i]["name"] if type(i) is int and 0 <= i < len(cards) else None
+        return {"status": "closed", "focused": name}, EXIT_OK
     if status == "cancelled":
         return {"status": "cancelled"}, EXIT_CANCEL
-    if req["mode"] == "show":
-        i = body.get("focused")
-        name = cards[i]["name"] if isinstance(i, int) and 0 <= i < len(cards) else None
-        return {"status": "closed", "focused": name}, EXIT_OK
     if status != "picked":
         raise ValueError(f"unknown status {status!r}")
     picked = body.get("picked")
-    if (not isinstance(picked, list) or len(set(picked)) != len(picked)
-            or not all(isinstance(i, int) and 0 <= i < len(cards) for i in picked)):
+    # type() and not isinstance(): True would pass as index 1.
+    if (not isinstance(picked, list)
+            or not all(type(i) is int and 0 <= i < len(cards) for i in picked)
+            or len(set(picked)) != len(picked)):
         raise ValueError("picked must be distinct card indices")
     lo, hi = req["min"], req["max"]
     if not lo <= len(picked) <= hi:
@@ -243,14 +248,20 @@ class Hub:
         self.cond = threading.Condition()
         self.requests = {}
         self.images = {}
-        self.browser_seen = 0.0
+        self.browser_seen = float("-inf")
         self.idle_since = time.monotonic()
-        self.symbols = None
+        # Set under cond together with the idle check, so no request can be
+        # added between "nothing is waiting" and the server stopping.
+        self.closing = False
+        self.symbols = {}
+        self.symbols_lock = threading.Lock()
 
     def add(self, req, images):
         rid = secrets.token_hex(6)
         now = time.monotonic()
         with self.cond:
+            if self.closing:
+                raise RuntimeError("the server is shutting down")
             req.update(id=rid, created=time.time(), answer=None, seen=now)
             self.requests[rid] = req
             self.images.update(images)
@@ -298,9 +309,18 @@ class Hub:
                 self.cond.wait(left)
 
     def drop(self, rid):
+        """Forget a request; returns its answer if the user answered first."""
         with self.cond:
-            self.requests.pop(rid, None)
+            req = self.requests.pop(rid, None)
             self.cond.notify_all()
+            return req and req["answer"]
+
+    def close_if_idle(self):
+        with self.cond:
+            if self.requests:
+                return False
+            self.closing = True
+            return True
 
     def prune(self):
         """Forget requests whose caller died; True when idle long enough to exit."""
@@ -310,12 +330,17 @@ class Hub:
                 del self.requests[rid]
             if self.requests or now - self.browser_seen < BROWSER_FRESH:
                 self.idle_since = now
-            return now - self.idle_since > IDLE_EXIT
+            if now - self.idle_since > IDLE_EXIT:
+                self.closing = True
+            return self.closing
 
     def symbol_url(self, symbol):
-        if self.symbols is None:
-            self.symbols = load_symbology()
-        return self.symbols.get(symbol)
+        # The page asks for a handful of symbols at once; load the table once.
+        # A failed load leaves it empty, so the next request tries again.
+        with self.symbols_lock:
+            if not self.symbols:
+                self.symbols = load_symbology()
+            return self.symbols.get(symbol)
 
 
 def load_symbology():
@@ -348,10 +373,17 @@ def cached_fetch(url, path):
 
 
 def write_private(path, text):
+    """Replace path atomically with a file only this user can read."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w") as fh:
         fh.write(text)
+    tmp.replace(path)
+
+
+def proof(token, nonce):
+    return hmac.new(token.encode(), nonce.encode(), hashlib.sha256).hexdigest()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -381,13 +413,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def token_ok(self):
         given = self.headers.get("X-Picker-Token") or ""
-        return secrets.compare_digest(given, self.hub.token)
+        return secrets.compare_digest(given.encode(), self.hub.token.encode())
 
     def read_json(self):
         n = int(self.headers.get("Content-Length") or 0)
-        if n > 5_000_000:
-            raise ValueError("body too large")
-        return json.loads(self.rfile.read(n) or b"{}")
+        if not 0 <= n <= 5_000_000:
+            raise ValueError("bad body length")
+        body = json.loads(self.rfile.read(n) or b"{}")
+        if not isinstance(body, dict):
+            raise ValueError("body must be a JSON object")
+        return body
 
     def route(self):
         path = urllib.parse.urlsplit(self.path).path
@@ -407,12 +442,20 @@ class Handler(BaseHTTPRequestHandler):
             return self.symbol(urllib.parse.unquote(parts[1]))
         if not path.startswith("/api/"):
             return self.send(HTTPStatus.NOT_FOUND, {"error": "not found"})
-        if not self.token_ok():
-            return self.send(HTTPStatus.UNAUTHORIZED, {"error": "bad token"})
+        qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         if path == "/api/ping":
+            # Answered without the token: the caller sends a nonce and the
+            # server proves it knows the token, so a process squatting the
+            # port never sees the token or the cards.
+            nonce = (qs.get("nonce") or [""])[0]
+            if not 16 <= len(nonce) <= 64:
+                return self.send(HTTPStatus.BAD_REQUEST, {"error": "nonce"})
             with self.hub.cond:
                 pending = len(self.hub.requests)
-            return self.send(HTTPStatus.OK, {"version": self.hub.version, "pending": pending})
+            return self.send(HTTPStatus.OK, {"version": self.hub.version, "pending": pending,
+                                             "proof": proof(self.hub.token, nonce)})
+        if not self.token_ok():
+            return self.send(HTTPStatus.UNAUTHORIZED, {"error": "bad token"})
         if path == "/api/requests":
             return self.send(HTTPStatus.OK, {"requests": self.hub.listing()})
         if len(parts) == 3 and parts[:2] == ["api", "requests"]:
@@ -421,8 +464,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(HTTPStatus.GONE, {"error": "gone"})
             return self.send(HTTPStatus.OK, req)
         if len(parts) == 4 and parts[:2] == ["api", "requests"] and parts[3] == "wait":
-            qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
-            timeout = min(float((qs.get("timeout") or [WAIT_POLL])[0]), 60)
+            try:
+                timeout = max(0.0, min(float((qs.get("timeout") or [WAIT_POLL])[0]), 60))
+            except ValueError:
+                return self.send(HTTPStatus.BAD_REQUEST, {"error": "timeout"})
             state, ans = self.hub.wait(parts[2], timeout)
             if state == "gone":
                 return self.send(HTTPStatus.GONE, {"error": "gone"})
@@ -443,7 +488,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
         if path == "/api/requests":
             images = body.pop("images", {})
-            rid, browser = self.hub.add(body, images)
+            try:
+                rid, browser = self.hub.add(body, images)
+            except RuntimeError as exc:
+                return self.send(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
             return self.send(HTTPStatus.OK, {"id": rid, "browser": browser})
         if len(parts) == 4 and parts[:2] == ["api", "requests"] and parts[3] == "answer":
             try:
@@ -454,9 +502,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             return self.send(HTTPStatus.OK, {"answer": out, "code": code})
         if path == "/api/shutdown":
-            with self.hub.cond:
-                busy = bool(self.hub.requests)
-            if busy:
+            if not self.hub.close_if_idle():
                 return self.send(HTTPStatus.CONFLICT, {"error": "requests pending"})
             self.send(HTTPStatus.OK, {"ok": True})
             threading.Thread(target=self.server.shutdown, daemon=True).start()
@@ -468,8 +514,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         _, parts = self.route()
         if len(parts) == 3 and parts[:2] == ["api", "requests"]:
-            self.hub.drop(parts[2])
-            return self.send(HTTPStatus.OK, {"ok": True})
+            ans = self.hub.drop(parts[2])
+            return self.send(HTTPStatus.OK, {"answer": ans[0], "code": ans[1]} if ans else {"ok": True})
         return self.send(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
     # -- images --------------------------------------------------------------
@@ -494,9 +540,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
         if not url:
             return self.send(HTTPStatus.NOT_FOUND, {"error": "no such symbol"})
-        safe = re.sub(r"[^A-Za-z0-9]", "_", m.group(1))
+        key = hashlib.sha1(m.group(1).encode()).hexdigest()[:16]
         try:
-            data = cached_fetch(url, CACHE_DIR / "symbols" / f"{safe}.svg")
+            data = cached_fetch(url, CACHE_DIR / "symbols" / f"{key}.svg")
         except (OSError, ValueError, urllib.error.URLError) as exc:
             return self.send(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
         return self.send(HTTPStatus.OK, data, "image/svg+xml", cache=True)
@@ -505,9 +551,10 @@ class Handler(BaseHTTPRequestHandler):
 def make_server(port, token, version):
     hub = Hub(token, version)
     handler = type("BoundHandler", (Handler,), {"hub": hub})
-    server = ThreadingHTTPServer(("127.0.0.1", port), handler)
-    server.daemon_threads = True
-    return server, hub
+    # No SO_REUSEPORT: two racing servers must not both bind and split calls.
+    server_cls = type("PickerServer", (ThreadingHTTPServer,),
+                      {"daemon_threads": True, "allow_reuse_port": False})
+    return server_cls(("127.0.0.1", port), handler), hub
 
 
 def cmd_serve(args):
@@ -564,37 +611,67 @@ def read_state():
 
 
 def ping(state):
+    """The server's status, or None unless it proves it holds state's token."""
+    nonce = secrets.token_hex(16)
     try:
-        status, body = call(state, "GET", "/api/ping", timeout=2)
-    except (OSError, urllib.error.URLError):
+        url = f"http://127.0.0.1:{state['port']}/api/ping?nonce={nonce}"
+        with urllib.request.urlopen(url, timeout=2) as resp:
+            body = json.loads(resp.read())
+    except (OSError, ValueError, KeyError, urllib.error.URLError):
         return None
-    return body if status == 200 else None
+    if not isinstance(body, dict) or not hmac.compare_digest(
+            str(body.get("proof", "")), proof(state["token"], nonce)):
+        return None
+    return body
+
+
+def wait_until(check, seconds, step=0.2):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        found = check()
+        if found:
+            return found
+        time.sleep(step)
+    return None
 
 
 def ensure_server(port):
     """State of a live server running this code version, starting one if needed."""
+    version = code_version()
     state = read_state()
     alive = state and ping(state)
-    if alive and alive["version"] == code_version():
-        return state
-    if alive and alive["pending"]:
-        # An older server still has someone waiting: use it, don't kill it.
+    if alive and (alive["version"] == version or alive["pending"]):
+        # An older server with someone waiting keeps serving: don't kill it.
         return state
     if alive:
-        call(state, "POST", "/api/shutdown")
-        time.sleep(0.3)
+        status, _ = call(state, "POST", "/api/shutdown")
+        if status == 409:
+            return state
+        # serve_forever notices the shutdown within half a second; the port
+        # is free once the old server stops answering.
+        wait_until(lambda: not ping(state), 5)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     with open(LOG_FILE, "ab") as log:
         subprocess.Popen(
             [sys.executable, str(Path(__file__).resolve()), "serve", "--port", str(port)],
             stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
-    deadline = time.monotonic() + 8
-    while time.monotonic() < deadline:
-        time.sleep(0.2)
-        state = read_state()
-        if state and ping(state):
-            return state
-    raise RuntimeError(f"the card-picker server did not start; see {LOG_FILE}")
+
+    def started():
+        fresh = read_state()
+        info = fresh and ping(fresh)
+        return fresh if info and info["version"] == version else None
+
+    fresh = wait_until(started, 8)
+    if fresh:
+        return fresh
+    try:
+        socket.create_connection(("127.0.0.1", port), timeout=1).close()
+    except OSError:
+        raise RuntimeError(f"the card-picker server did not start; see {LOG_FILE}") from None
+    raise RuntimeError(
+        f"127.0.0.1:{port} is held by a process that can't prove it is this card-picker "
+        f"server (an older version exits after {IDLE_EXIT // 60} idle minutes); "
+        "stop it or set CARD_PICKER_PORT")
 
 
 def default_agent():
@@ -613,8 +690,9 @@ def build_request(args, mode, cards):
         label = args.label or "View"
     else:
         lo, hi = args.count
-        hi = len(cards) if hi is None else hi
-        want = f"{lo}" if lo == hi else f"{lo}–{hi}" if hi < len(cards) else "any"
+        hi = len(cards) if hi is None else min(hi, len(cards))
+        want = ("any" if lo == 1 and hi == len(cards) > 1
+                else f"{lo}" if lo == hi else f"{lo}–{hi}")
         ask = args.title or f"Pick {want} card{'s' if hi > 1 else ''}"
         label = args.label or (f"Pick {want}" + (" + note" if args.prompt else ""))
     argv = ["picker.py"] + sys.argv[1:] if sys.argv[1:2] == [mode] else ["picker.py", mode]
@@ -654,8 +732,12 @@ def run_request(args, mode):
     req = build_request(args, mode, cards)
     req["images"] = images
     try:
-        state = ensure_server(args.port)
-        status, resp = call(state, "POST", "/api/requests", req)
+        for _ in range(3):
+            state = ensure_server(args.port)
+            status, resp = call(state, "POST", "/api/requests", req)
+            if status != 503:  # 503: that server is shutting down, start another
+                break
+            time.sleep(1)
     except (OSError, urllib.error.URLError, RuntimeError) as exc:
         print(f"card-picker server failure: {exc}", file=sys.stderr)
         return EXIT_SERVER
@@ -669,30 +751,51 @@ def run_request(args, mode):
     if not resp["browser"] and not args.no_open:
         webbrowser.open(url)
 
+    # An agent stops a background call with SIGTERM: withdraw the tab then too.
+    old_term = signal.signal(signal.SIGTERM, _interrupt)
     deadline = time.monotonic() + args.timeout
     try:
         while True:
             left = deadline - time.monotonic()
             if left <= 0:
-                call(state, "DELETE", f"/api/requests/{rid}")
-                print(json.dumps({"status": "timeout"}))
-                return EXIT_TIMEOUT
+                return withdraw(state, rid, "timeout", EXIT_TIMEOUT)
             status, resp = call(state, "GET",
-                                f"/api/requests/{rid}/wait?timeout={min(WAIT_POLL, left):.0f}",
+                                f"/api/requests/{rid}/wait?timeout={min(WAIT_POLL, left):.1f}",
                                 timeout=WAIT_POLL + 10)
             if status == 200 and "answer" in resp:
-                print(json.dumps(resp["answer"], ensure_ascii=False, indent=2))
-                return resp["code"]
+                return emit(resp)
             if status != 200:
                 print(f"card-picker server lost the request: {resp}", file=sys.stderr)
                 return EXIT_SERVER
     except KeyboardInterrupt:
-        call(state, "DELETE", f"/api/requests/{rid}")
-        print(json.dumps({"status": "cancelled"}))
-        return EXIT_CANCEL
+        try:
+            return withdraw(state, rid, "cancelled", EXIT_CANCEL)
+        except (OSError, urllib.error.URLError):
+            print(json.dumps({"status": "cancelled"}))
+            return EXIT_CANCEL
     except (OSError, urllib.error.URLError) as exc:
         print(f"card-picker server failure: {exc}", file=sys.stderr)
         return EXIT_SERVER
+    finally:
+        signal.signal(signal.SIGTERM, old_term)
+
+
+def _interrupt(signum, frame):
+    raise KeyboardInterrupt
+
+
+def emit(resp):
+    print(json.dumps(resp["answer"], ensure_ascii=False, indent=2))
+    return resp["code"]
+
+
+def withdraw(state, rid, status, code):
+    """Take the tab down; an answer the user sent in the meantime still wins."""
+    _, resp = call(state, "DELETE", f"/api/requests/{rid}")
+    if "answer" in resp:
+        return emit(resp)
+    print(json.dumps({"status": status}))
+    return code
 
 
 def main(argv=None):

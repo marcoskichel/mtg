@@ -427,8 +427,10 @@ dialog::backdrop { background: rgba(5,6,9,.7); }
 /* Requests come from the local card-picker server; each one is a tab. */
 const TOKEN = (() => {
   const t = new URLSearchParams(location.search).get("t");
-  try { if (t) sessionStorage.setItem("picker-token", t); return t || sessionStorage.getItem("picker-token") || ""; }
-  catch { return t || ""; }
+  try {
+    if (t) { sessionStorage.setItem("picker-token", t); history.replaceState(null, "", location.pathname); }
+    return t || sessionStorage.getItem("picker-token") || "";
+  } catch { return t || ""; }
 })();
 const api = async (method, path, body) => {
   const r = await fetch(path, { method, headers: { "X-Picker-Token": TOKEN, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
@@ -474,7 +476,7 @@ const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 /* ── state ──────────────────────────────────────────────── */
 let TABS = [];          // requests, oldest first; done ones stay until their result is closed
 const STATE = {};       // per request id: cursor, sel, filter, note, face
-let active = 0, msg = null, msgTimer = null, returnFocus = null, offline = false;
+let active = 0, msg = null, msgTimer = null, returnFocus = null, offline = false, resultFor = null;
 const freshState = () => ({ cursor: 0, sel: [], filter: "", note: "", face: 0, result: null });
 const tab = () => TABS[active];
 const st = () => STATE[tab().id];
@@ -709,9 +711,10 @@ async function send(b) {
   try { r = await api("POST", `api/requests/${t.id}/answer`, b); }
   catch { r = { status: 0, data: { error: "the card-picker server is not reachable" } }; }
   s.sending = false;
+  if (STATE[t.id] !== s) return;
   if (r.status === 410) { dropTab(t.id, `${t.agent} stopped waiting for “${t.ask}”`); return; }
   if (r.status !== 200) { flash(r.data.error || `Could not send (HTTP ${r.status})`, "warn"); render(); return; }
-  s.result = r.data;
+  s.result = r.data; resultFor = t.id;
   render();
   const ok = r.data.code === 0;
   $("#result-title").textContent = ok ? `Sent to ${t.agent}` : "Request cancelled";
@@ -724,15 +727,15 @@ async function send(b) {
   showDialog("#dlg-result", $("#btn-result-close"));
 }
 function highlight(json) {
-  return esc(json)
-    .replace(/(&quot;[^&]*?&quot;)(\s*:)/g, '<span class="k">$1</span>$2')
-    .replace(/(:\s*|\[\s*|,\s*)(&quot;(?:[^&]|&(?!quot;))*?&quot;)/g, '$1<span class="s">$2</span>')
-    .replace(/\b(null|true|false|\d+)\b/g, '<span class="n">$1</span>');
+  // Tokenize the raw JSON, then escape each token: escaping first would let the
+  // number rule match inside entities like &#39;. What's left is punctuation.
+  return json.replace(/("(?:[^"\\]|\\.)*")(\s*:)?|\b(null|true|false|-?\d+(?:\.\d+)?)\b/g, (m, str, colon, lit) =>
+    str ? `<span class="${colon ? "k" : "s"}">${esc(str)}</span>${colon || ""}` : `<span class="n">${lit}</span>`);
 }
 function cancel() { if (!st().result) send({ status: "cancelled" }); }
 function closeResult() {
   closeDialog(false);
-  const id = tab().id;
+  const id = resultFor; resultFor = null;
   TABS = TABS.filter(t => t.id !== id); delete STATE[id];
   const next = TABS.findIndex(t => !STATE[t.id].result);
   active = Math.max(0, next >= 0 ? next : Math.min(active, TABS.length - 1));
@@ -788,12 +791,18 @@ async function poll() {
   if (!r || r.status !== 200) {
     const was = offline; offline = true;
     if (r && r.status === 401) { $("#idle-text").textContent = "This page is from an older server session. Open the link your agent printed most recently."; }
-    if (!was) { TABS = TABS.filter(t => STATE[t.id].result); active = 0; render(); }
+    if (!was) {
+      if (openDialog() && openDialog().id !== "dlg-result") closeDialog(false);
+      const keep = TABS.filter(t => STATE[t.id].result);
+      for (const t of TABS) if (!keep.includes(t)) delete STATE[t.id];
+      TABS = keep; active = Math.max(0, TABS.findIndex(t => t.id === resultFor)); render();
+    }
     return;
   }
   offline = false;
   const live = new Set(r.data.requests.map(q => q.id));
-  for (const t of [...TABS]) if (!live.has(t.id) && !STATE[t.id].result) dropTab(t.id, `${t.agent} stopped waiting for “${t.ask}”`);
+  // A tab being answered right now is already gone from the listing: send() owns it.
+  for (const t of [...TABS]) if (!live.has(t.id) && !STATE[t.id].result && !STATE[t.id].sending) dropTab(t.id, `${t.agent} stopped waiting for “${t.ask}”`);
   const fresh = r.data.requests.filter(q => !TABS.some(t => t.id === q.id));
   for (const q of fresh) {
     const full = await api("GET", `api/requests/${q.id}`);
