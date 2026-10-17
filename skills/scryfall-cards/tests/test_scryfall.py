@@ -1,4 +1,4 @@
-"""Testes do scryfall.py com HTTP simulado. Rodar: python3 -m unittest discover -s tests"""
+"""Tests for scryfall.py with simulated HTTP. Run: python3 -m unittest discover -s tests"""
 
 import io
 import json
@@ -48,7 +48,7 @@ DELVER = card(
 
 
 class FakeHTTP:
-    """Roteia chamadas por (método, trecho da URL). Guarda o histórico."""
+    """Routes calls by (method, URL fragment). Keeps the call history."""
 
     def __init__(self, routes):
         self.routes = routes
@@ -59,7 +59,7 @@ class FakeHTTP:
         for key, resp in self.routes:
             if key in url:
                 return resp(body) if callable(resp) else resp
-        raise AssertionError(f"rota não simulada: {method} {url}")
+        raise AssertionError(f"route not simulated: {method} {url}")
 
 
 def run(argv, routes):
@@ -93,10 +93,10 @@ class ParseDeck(unittest.TestCase):
         self.assertEqual(scryfall.front_face("Fire // Ice"), "Fire")
 
 
-class Carta(unittest.TestCase):
+class CardCmd(unittest.TestCase):
     def test_dfc_prints_both_faces(self):
         code, out, err, calls = run(
-            ["carta", "Delver of Secrets"],
+            ["card", "Delver of Secrets"],
             [("/cards/collection", collection([DELVER]))])
         self.assertEqual(code, 0)
         self.assertIn("Delver of Secrets", out)
@@ -104,34 +104,34 @@ class Carta(unittest.TestCase):
         self.assertIn("Flying", out)
         self.assertIn("1/1", out)
         self.assertIn("3/2", out)
-        # texto da face vem da face, não do topo (que é null)
+        # face text comes from the face, not the top level (which is null)
         self.assertNotIn("None", out)
 
     def test_dfc_full_name_sent_as_front_face(self):
         code, out, err, calls = run(
-            ["carta", "Delver of Secrets // Insectile Aberration"],
+            ["card", "Delver of Secrets // Insectile Aberration"],
             [("/cards/collection", collection([DELVER]))])
         self.assertEqual(code, 0)
         body = json.loads(calls[0][2])
         self.assertEqual(body["identifiers"], [{"name": "Delver of Secrets"}])
 
     def test_fallback_pt_exact_before_fuzzy(self):
-        """Não achado na coleção → busca exata lang:pt → fuzzy, nessa ordem."""
+        """Not found in collection -> exact lang:pt search -> fuzzy, in that order."""
         code, out, err, calls = run(
-            ["carta", "Raio"],
+            ["card", "Raio"],
             [("/cards/collection", collection([], ["Raio"])),
              ("/cards/search", {"object": "list", "data": [card("Lightning Bolt", lang="pt", printed_name="Raio")],
                                 "has_more": False, "total_cards": 1})])
         self.assertEqual(code, 0)
         self.assertIn("Lightning Bolt", out)
-        self.assertIn("Raio", err)         # relatório de renome
+        self.assertIn("Raio", err)         # rename report
         kinds = [c[1].split("?")[0].rsplit("/", 1)[-1] for c in calls]
         self.assertEqual(kinds, ["collection", "search"])
-        self.assertIn('q=%21%22Raio%22+lang%3Apt', calls[1][1])   # exato, não substring
+        self.assertIn('q=%21%22Raio%22+lang%3Apt', calls[1][1])   # exact, not substring
 
     def test_fuzzy_accepts_typo(self):
         code, out, err, calls = run(
-            ["carta", "Lightnig Bolt"],
+            ["card", "Lightnig Bolt"],
             [("/cards/collection", collection([], ["Lightnig Bolt"])),
              ("/cards/search", {"object": "error", "code": "not_found", "status": 404}),
              ("/cards/named?fuzzy=", card("Lightning Bolt"))])
@@ -140,32 +140,32 @@ class Carta(unittest.TestCase):
         self.assertIn("fuzzy", err)
 
     def test_fuzzy_rejects_unrelated_card(self):
-        """Scryfall devolve 'Samurai of the Pale Curtain' para 'Raio'. Não aceitar."""
+        """Scryfall returns 'Samurai of the Pale Curtain' for 'Raio'. Do not accept."""
         code, out, err, calls = run(
-            ["carta", "Raio"],
+            ["card", "Raio"],
             [("/cards/collection", collection([], ["Raio"])),
              ("/cards/search", {"object": "error", "code": "not_found", "status": 404}),
              ("/cards/named?fuzzy=", card("Samurai of the Pale Curtain"))])
         self.assertEqual(code, 1)
         self.assertNotIn("Samurai", out)
-        self.assertIn("NÃO ENCONTRADA", err)
-        self.assertIn("rejeitado", err)
+        self.assertIn("NOT FOUND", err)
+        self.assertIn("rejected", err)
 
     def test_unresolved_exit_1_with_suggestions(self):
         code, out, err, calls = run(
-            ["carta", "Lightnig Bol"],
+            ["card", "Lightnig Bol"],
             [("/cards/collection", collection([], ["Lightnig Bol"])),
              ("/cards/search", {"object": "error", "code": "not_found", "status": 404}),
              ("/cards/named?fuzzy=", {"object": "error", "code": "not_found", "status": 404,
                                       "details": "No cards found matching “Lightnig Bol”"})])
         self.assertEqual(code, 1)
-        self.assertIn("NÃO ENCONTRADA", err)
+        self.assertIn("NOT FOUND", err)
         self.assertIn("Lightnig Bol", err)
 
-    def test_formatos_and_rulings(self):
+    def test_formats_and_rulings(self):
         bolt = card("Lightning Bolt")
         code, out, err, calls = run(
-            ["carta", "Lightning Bolt", "--formatos", "modern,standard", "--regras"],
+            ["card", "Lightning Bolt", "--formats", "modern,standard", "--rulings"],
             [("/cards/collection", collection([bolt])),
              ("/rulings", {"object": "list", "data": [
                  {"published_at": "2020-01-01", "comment": "Bolt the bird."}]})])
@@ -181,68 +181,68 @@ class Carta(unittest.TestCase):
         found = [card(n) for n in names]
         with mock.patch.object(sys, "stdin", io.StringIO(text)):
             code, out, err, calls = run(
-                ["carta", "-d", "-", "--json"],
+                ["card", "-d", "-", "--json"],
                 [("/cards/collection", collection(found))])
         self.assertEqual(code, 0)
         posts = [c for c in calls if "/cards/collection" in c[1]]
         self.assertEqual(len(posts), 2)
         self.assertEqual(len(json.loads(posts[0][2])["identifiers"]), 75)
         data = json.loads(out)
-        self.assertEqual(len(data["cartas"]), 80)
-        self.assertEqual(data["cartas"][0]["name"], "Card 0")
+        self.assertEqual(len(data["cards"]), 80)
+        self.assertEqual(data["cards"][0]["name"], "Card 0")
 
     def test_json_trimmed(self):
         code, out, err, calls = run(
-            ["carta", "Lightning Bolt", "--json"],
+            ["card", "Lightning Bolt", "--json"],
             [("/cards/collection", collection([card("Lightning Bolt", multiverse_ids=[1], foo="bar")]))])
         data = json.loads(out)
-        c = data["cartas"][0]
+        c = data["cards"][0]
         self.assertIn("oracle_text", c)
         self.assertIn("legalities", c)
         self.assertNotIn("foo", c)
         self.assertNotIn("multiverse_ids", c)
 
 
-class Busca(unittest.TestCase):
+class Search(unittest.TestCase):
     def test_warnings_go_to_stderr_and_exit_1(self):
         code, out, err, calls = run(
-            ["busca", "c:r badkey:zz"],
+            ["search", "c:r badkey:zz"],
             [("/cards/search", {"object": "list", "total_cards": 7079, "has_more": False,
                                 "warnings": ["Invalid expression “badkey:zz” was ignored."],
                                 "data": [card("Aardwolf's Advantage")]})])
         self.assertEqual(code, 1)
-        self.assertIn("AVISO", err)
+        self.assertIn("SCRYFALL WARNING", err)
         self.assertIn("badkey:zz", err)
         self.assertIn("Aardwolf's Advantage", out)
 
     def test_no_match_404(self):
         code, out, err, calls = run(
-            ["busca", "name:zzzzqqq"],
+            ["search", "name:zzzzqqq"],
             [("/cards/search", {"object": "error", "code": "not_found", "status": 404,
                                 "details": "Your query didn’t match any cards."})])
         self.assertEqual(code, 1)
-        self.assertIn("nenhuma carta", err.lower())
+        self.assertIn("no cards", err.lower())
 
     def test_limit_stops_pagination(self):
         page1 = {"object": "list", "total_cards": 350, "has_more": True,
                  "next_page": "https://api.scryfall.com/cards/search?page=2&q=x",
                  "data": [card(f"A{i}") for i in range(175)]}
         code, out, err, calls = run(
-            ["busca", "x", "--limite", "20"],
+            ["search", "x", "--limit", "20"],
             [("/cards/search", page1)])
         self.assertEqual(code, 0)
         self.assertEqual(len([c for c in calls if "/cards/search" in c[1]]), 1)
         self.assertEqual(sum(1 for ln in out.splitlines() if ln.startswith("A")), 20)
-        self.assertIn("350", err)   # total informado
+        self.assertIn("350", err)   # total reported
 
-    def test_todas_follows_next_page(self):
+    def test_all_follows_next_page(self):
         page1 = {"object": "list", "total_cards": 180, "has_more": True,
                  "next_page": "https://api.scryfall.com/cards/search?page=2&q=x",
                  "data": [card(f"A{i}") for i in range(175)]}
         page2 = {"object": "list", "total_cards": 180, "has_more": False,
                  "data": [card(f"B{i}") for i in range(5)]}
         code, out, err, calls = run(
-            ["busca", "x", "--todas"],
+            ["search", "x", "--all"],
             [("page=2", page2), ("/cards/search", page1)])
         self.assertEqual(code, 0)
         self.assertEqual(len([c for c in calls if "/cards/search" in c[1]]), 2)
@@ -250,7 +250,7 @@ class Busca(unittest.TestCase):
 
     def test_query_and_order_in_url(self):
         code, out, err, calls = run(
-            ["busca", "c:r t:creature", "--ordem", "cmc", "--unique", "prints"],
+            ["search", "c:r t:creature", "--order", "cmc", "--unique", "prints"],
             [("/cards/search", {"object": "list", "total_cards": 1, "has_more": False,
                                 "data": [card("X")]})])
         url = calls[0][1]
@@ -259,7 +259,7 @@ class Busca(unittest.TestCase):
         self.assertIn("unique=prints", url)
 
 
-class Edicoes(unittest.TestCase):
+class Printings(unittest.TestCase):
     def test_filters_and_image(self):
         prints = {"object": "list", "total_cards": 3, "has_more": False, "data": [
             card("Lightning Bolt", set="m11", digital=False, promo=False),
@@ -267,7 +267,7 @@ class Edicoes(unittest.TestCase):
             card("Lightning Bolt", set="prm", digital=True, promo=False),
         ]}
         code, out, err, calls = run(
-            ["edicoes", "lightning bolt", "--sem-digital", "--sem-promo", "--imagem"],
+            ["printings", "lightning bolt", "--no-digital", "--no-promo", "--image"],
             [("/cards/named?fuzzy=", card("Lightning Bolt")),
              ("unique=prints", prints)])
         self.assertEqual(code, 0)
@@ -279,24 +279,24 @@ class Edicoes(unittest.TestCase):
     def test_dfc_images_per_face(self):
         prints = {"object": "list", "total_cards": 1, "has_more": False, "data": [DELVER]}
         code, out, err, calls = run(
-            ["edicoes", "delver", "--imagem"],
+            ["printings", "delver", "--image"],
             [("/cards/named?fuzzy=", DELVER), ("unique=prints", prints)])
         self.assertIn("https://img/front.jpg", out)
         self.assertIn("https://img/back.jpg", out)
 
     def test_ambiguous_name(self):
         code, out, err, calls = run(
-            ["edicoes", "bolt"],
+            ["printings", "bolt"],
             [("/cards/named?fuzzy=", {"object": "error", "code": "not_found", "type": "ambiguous",
                                       "details": "Too many cards match ambiguous name “bolt”."})])
         self.assertEqual(code, 1)
-        self.assertIn("ambígu", err.lower())
+        self.assertIn("ambiguous", err.lower())
 
 
-class Regras(unittest.TestCase):
+class Rulings(unittest.TestCase):
     def test_lists_rulings(self):
         code, out, err, calls = run(
-            ["regras", "Brash Taunter"],
+            ["rulings", "Brash Taunter"],
             [("/cards/named?fuzzy=", card("Brash Taunter")),
              ("/rulings", {"object": "list", "data": [
                  {"published_at": "2020-06-23", "comment": "Damage greater than toughness."}]})])
@@ -306,11 +306,11 @@ class Regras(unittest.TestCase):
 
     def test_no_rulings(self):
         code, out, err, calls = run(
-            ["regras", "Sol Ring"],
+            ["rulings", "Sol Ring"],
             [("/cards/named?fuzzy=", card("Sol Ring")),
              ("/rulings", {"object": "list", "data": []})])
         self.assertEqual(code, 0)
-        self.assertIn("sem rulings", out.lower())
+        self.assertIn("no rulings", out.lower())
 
 
 class Retry(unittest.TestCase):

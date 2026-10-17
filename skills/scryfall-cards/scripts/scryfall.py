@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Consulta de cartas de Magic na API da Scryfall.
+"""Magic card lookup through the Scryfall API.
 
-Quatro subcomandos: carta (texto oracle de uma ou muitas cartas, inclusive
-decklist inteira), busca (sintaxe de busca da Scryfall), edicoes (todas as
-impressoes de uma carta) e regras (rulings).
+Four subcommands: card (oracle text for one or many cards, including a whole
+decklist), search (Scryfall search syntax), printings (every printing of a
+card) and rulings.
 
-Saida pensada para ser lida por um modelo: texto compacto no stdout, relatorio
-de nomes nao resolvidos e avisos no stderr, --json quando outro script consome.
+Output is meant to be read by a model: compact text on stdout, a report of
+unresolved names and warnings on stderr, --json when another script consumes it.
 """
 
 import argparse
@@ -24,14 +24,14 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 API = "https://api.scryfall.com"
-# Scryfall exige User-Agent e Accept; sem eles responde 400.
+# Scryfall requires User-Agent and Accept; without them it answers 400.
 UA = "mtg-skills/0.1"
-# Scryfall pede no maximo 10 req/s. 0.1s entre chamadas respeita isso.
+# Scryfall asks for at most 10 req/s. 0.1s between calls respects that.
 DEFAULT_DELAY = 0.1
 COLLECTION_BATCH = 75
 PAGE_SIZE = 175
 # "Lightnig Bolt" x "Lightning Bolt" = 0.96; "Raio" x "Samurai of the Pale
-# Curtain" = 0.26. 0.75 separa erro de grafia de chute da API.
+# Curtain" = 0.26. 0.75 separates a typo from an API guess.
 FUZZY_MIN_RATIO = 0.75
 
 SECTION_HEADERS = {
@@ -43,7 +43,7 @@ SECTION_HEADERS = {
     "companion": "companion", "companheiro": "companion",
 }
 SECTIONS = ("commander", "companion", "main", "side", "maybe")
-SECTION_LABELS = {"commander": "Comandante", "companion": "Companheiro",
+SECTION_LABELS = {"commander": "Commander", "companion": "Companion",
                   "main": "Main deck", "side": "Sideboard", "maybe": "Maybeboard"}
 
 LINE_RE = re.compile(r"^\s*(?P<qty>\d+)\s*[xX]?\s+(?P<rest>\S.*?)\s*$")
@@ -52,7 +52,7 @@ MWS_SET_RE = re.compile(r"^\[[^\]]*\]\s*")
 ARENA_TAIL_RE = re.compile(r"\s*\([A-Za-z0-9]{2,6}\)\s+[0-9]+[a-z★]?\s*$")
 FOIL_MARK_RE = re.compile(r"\s*\*[FEfe]\*\s*$")
 
-# Campos que valem a pena quando --json: o objeto cru da Scryfall tem ~60.
+# Fields worth keeping with --json: the raw Scryfall object has ~60.
 CARD_FIELDS = (
     "name", "layout", "lang", "printed_name", "mana_cost", "cmc", "type_line",
     "oracle_text", "power", "toughness", "loyalty", "defense", "colors",
@@ -65,11 +65,11 @@ FACE_FIELDS = ("name", "mana_cost", "type_line", "oracle_text", "power",
 
 
 # --------------------------------------------------------------------------- #
-# nomes
+# names
 # --------------------------------------------------------------------------- #
 
 def fold(s):
-    """Chave de comparacao: sem acento, sem caixa, espacos colapsados."""
+    """Comparison key: no accents, no case, collapsed whitespace."""
     s = html.unescape(s or "")
     s = unicodedata.normalize("NFD", s)
     s = "".join(c for c in s if unicodedata.category(c) != "Mn")
@@ -78,12 +78,12 @@ def fold(s):
 
 
 def front_face(name):
-    """'A // B' -> 'A'. /cards/collection so reconhece a face da frente."""
+    """'A // B' -> 'A'. /cards/collection only recognizes the front face."""
     return name.split("//")[0].strip() if "//" in name else name.strip()
 
 
 def clean_card_name(raw):
-    """Tira ruido de export de outras ferramentas, preservando o nome real."""
+    """Strip export noise from other tools, keeping the real name."""
     name = raw.strip()
     name = MWS_SET_RE.sub("", name)
     prev = None
@@ -95,8 +95,8 @@ def clean_card_name(raw):
 
 
 # --------------------------------------------------------------------------- #
-# parsing de decklist (mesmas regras da skill ligamagic-preco, duplicadas de
-# proposito para a skill ser autocontida)
+# decklist parsing (same rules as the ligamagic-preco skill, duplicated on
+# purpose so the skill is self-contained)
 # --------------------------------------------------------------------------- #
 
 class Entry:
@@ -108,7 +108,7 @@ class Entry:
         self.name = clean_card_name(raw)
         self.section = section
         self.card = None
-        self.status = "pendente"
+        self.status = "pending"
         self.note = ""
 
 
@@ -177,7 +177,7 @@ def parse_input(text):
 
 
 # --------------------------------------------------------------------------- #
-# rede
+# network
 # --------------------------------------------------------------------------- #
 
 _last_call = [0.0]
@@ -186,10 +186,10 @@ RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
 def _http(method, url, body=None, retries=3):
-    """Uma chamada a API, com ritmo e recuo em 429/5xx.
+    """One API call, with pacing and backoff on 429/5xx.
 
-    Erros 4xx que a Scryfall explica (404 not_found, ambiguous) voltam como o
-    JSON de erro, nao como excecao: o chamador decide o que dizer ao usuario.
+    4xx errors that Scryfall explains (404 not_found, ambiguous) come back as
+    the error JSON, not as an exception: the caller decides what to tell the user.
     """
     gap = DELAY[0] - (time.monotonic() - _last_call[0])
     if gap > 0:
@@ -214,7 +214,7 @@ def _http(method, url, body=None, retries=3):
                     pause = float(ra) if ra else wait
                 except ValueError:
                     pause = wait
-                print(f"aviso: HTTP {exc.code} da Scryfall; aguardando {pause:.0f}s",
+                print(f"warning: HTTP {exc.code} from Scryfall; waiting {pause:.0f}s",
                       file=sys.stderr)
                 time.sleep(pause)
                 wait *= 2
@@ -226,7 +226,7 @@ def _http(method, url, body=None, retries=3):
             if isinstance(err, dict) and err.get("object") == "error":
                 return err
             raise
-    raise RuntimeError("inalcancavel")
+    raise RuntimeError("unreachable")
 
 
 def api(path, **params):
@@ -241,11 +241,11 @@ def is_error(obj):
 
 
 # --------------------------------------------------------------------------- #
-# resolucao de nome
+# name resolution
 # --------------------------------------------------------------------------- #
 
 def _index_cards(cards):
-    """Chaves pelas quais uma carta devolvida pode casar com o nome pedido."""
+    """Keys under which a returned card can match the requested name."""
     idx = {}
     for c in cards:
         keys = {fold(c.get("name")), fold(front_face(c.get("name", "")))}
@@ -259,11 +259,11 @@ def _index_cards(cards):
 
 
 def resolve_names(names, report):
-    """Nome pedido -> objeto carta, via /cards/collection + fallbacks.
+    """Requested name -> card object, via /cards/collection + fallbacks.
 
-    Scryfall so casa o nome exato em ingles na colecao; 'A // B' precisa ir
-    como 'A'. O que sobrar tenta fuzzy (erros de grafia, alguns nomes em
-    portugues) e depois busca por nome impresso em portugues.
+    Scryfall only matches the exact English name in the collection; 'A // B'
+    has to go as 'A'. Whatever is left tries an exact search on the printed
+    Portuguese name, then fuzzy (typos).
     """
     wanted = {}
     for n in names:
@@ -285,33 +285,33 @@ def resolve_names(names, report):
         if k in found:
             continue
         query = wanted[k]
-        # Nome impresso em portugues, casamento exato ('!'): 'name:' e
-        # substring e devolveria 67 cartas para "Raio".
+        # Printed Portuguese name, exact match ('!'): 'name:' is a
+        # substring match and would return 67 cards for "Raio".
         pt = api("/cards/search", q=f'!"{query}" lang:pt', unique="cards")
         if not is_error(pt) and pt.get("data"):
             card = pt["data"][0]
-            # A impressao em portugues tem oracle em ingles e o nome canonico
-            # em 'name'; 'printed_name' e o que o usuario escreveu.
+            # The Portuguese printing has English oracle text and the canonical
+            # name in 'name'; 'printed_name' is what the user wrote.
             found[k] = card
-            report.renames[query] = (card["name"], "nome em português")
+            report.renames[query] = (card["name"], "Portuguese name")
             continue
         card = api("/cards/named", fuzzy=query)
         if is_error(card):
             report.missing[query] = card.get("details") or ""
             continue
-        # fuzzy com nome curto ou em portugues devolve qualquer coisa ("Raio"
-        # -> Samurai of the Pale Curtain). So aceita se parecer com o pedido.
+        # fuzzy with a short or Portuguese name returns anything ("Raio"
+        # -> Samurai of the Pale Curtain). Accept only if it looks like the request.
         if looks_like(query, card):
             found[k] = card
             report.renames[query] = (card["name"], "fuzzy")
         else:
-            report.missing[query] = (f"fuzzy sugeriu \"{card['name']}\", rejeitado "
-                                     "por não parecer com o nome pedido")
+            report.missing[query] = (f"fuzzy suggested \"{card['name']}\", rejected "
+                                     "because it does not look like the requested name")
     return found, wanted
 
 
 def looks_like(query, card):
-    """Gate do fuzzy: substring ou similaridade alta com algum nome da carta."""
+    """Fuzzy gate: substring or high similarity with one of the card names."""
     q = fold(query)
     names = [card.get("name", "")] + [f.get("name", "") for f in card.get("card_faces") or []]
     for n in names:
@@ -333,15 +333,15 @@ class Report:
         out = out or sys.stderr
         if self.warnings:
             for w in self.warnings:
-                print(f"AVISO DA SCRYFALL: {w}", file=out)
-            print("  ^ expressao ignorada = a busca ficou MAIS AMPLA do que o "
-                  "pedido. Corrija a query antes de usar o resultado.", file=out)
+                print(f"SCRYFALL WARNING: {w}", file=out)
+            print("  ^ ignored expression = the search is BROADER than "
+                  "requested. Fix the query before using the result.", file=out)
         if self.renames:
-            print(f"Nomes ajustados ({len(self.renames)}):", file=out)
+            print(f"Names adjusted ({len(self.renames)}):", file=out)
             for old, (new, why) in self.renames.items():
                 print(f"  {old}  ->  {new}   [{why}]", file=out)
         if self.missing:
-            print(f"NÃO ENCONTRADA na Scryfall ({len(self.missing)}):", file=out)
+            print(f"NOT FOUND on Scryfall ({len(self.missing)}):", file=out)
             for name, hint in self.missing.items():
                 print(f"  {name}" + (f"\n      {hint}" if hint else ""), file=out)
 
@@ -351,11 +351,11 @@ class Report:
 
 
 # --------------------------------------------------------------------------- #
-# formatacao
+# formatting
 # --------------------------------------------------------------------------- #
 
 def faces_of(card):
-    """Faces com texto proprio; carta normal e uma face so."""
+    """Faces with their own text; a normal card is a single face."""
     if card.get("oracle_text") is None and card.get("card_faces"):
         return card["card_faces"]
     return [card]
@@ -365,17 +365,17 @@ def _pt(face):
     if face.get("power") is not None:
         return f"{face['power']}/{face['toughness']}"
     if face.get("loyalty") is not None:
-        return f"lealdade {face['loyalty']}"
+        return f"loyalty {face['loyalty']}"
     if face.get("defense") is not None:
-        return f"defesa {face['defense']}"
+        return f"defense {face['defense']}"
     return ""
 
 
 def format_card(card, formats, rulings=None):
     lines = []
     name = card.get("name", "?")
-    ci = "".join(card.get("color_identity") or []) or "incolor"
-    head = f"{name}  [{card.get('set', '').upper()} {card.get('collector_number', '')}]  identidade: {ci}"
+    ci = "".join(card.get("color_identity") or []) or "colorless"
+    head = f"{name}  [{card.get('set', '').upper()} {card.get('collector_number', '')}]  identity: {ci}"
     lines.append(head)
     lines.append("-" * min(len(head), 90))
     for face in faces_of(card):
@@ -392,14 +392,14 @@ def format_card(card, formats, rulings=None):
     if formats:
         leg = card.get("legalities") or {}
         parts = [f"{f}: {leg.get(f, '?').replace('_', ' ')}" for f in formats]
-        lines.append("  legalidade: " + ", ".join(parts))
+        lines.append("  legality: " + ", ".join(parts))
     if rulings is not None:
         if rulings:
             lines.append("  rulings:")
             for r in rulings:
                 lines.append(f"    [{r.get('published_at')}] {r.get('comment')}")
         else:
-            lines.append("  rulings: sem rulings")
+            lines.append("  rulings: no rulings")
     lines.append("")
     return "\n".join(lines)
 
@@ -424,57 +424,57 @@ def fetch_rulings(card):
 
 
 def lookup_one(query):
-    """Uma carta por nome aproximado, para edicoes/regras. (carta, erro)."""
+    """One card by approximate name, for printings/rulings. (card, error)."""
     card = api("/cards/named", fuzzy=query)
     if is_error(card):
         if card.get("type") == "ambiguous":
-            return None, f"nome ambíguo: {card.get('details')}"
-        return None, card.get("details") or "não encontrada"
+            return None, f"ambiguous name: {card.get('details')}"
+        return None, card.get("details") or "not found"
     return card, None
 
 
 # --------------------------------------------------------------------------- #
-# subcomandos
+# subcommands
 # --------------------------------------------------------------------------- #
 
-def cmd_carta(args):
+def cmd_card(args):
     if args.deck:
         text = sys.stdin.read() if args.deck == "-" else \
             Path(args.deck).read_text(encoding="utf-8", errors="replace")
         sections = parse_input(text)
         if not any(sections.values()):
-            print("nenhuma carta reconhecida na entrada", file=sys.stderr)
+            print("no card recognized in the input", file=sys.stderr)
             return 2
-    elif args.nomes:
+    elif args.names:
         sections = {k: [] for k in SECTIONS}
-        sections["main"] = [Entry(1, n) for n in args.nomes]
+        sections["main"] = [Entry(1, n) for n in args.names]
     else:
-        print("passe nomes de carta ou -d ARQUIVO (- para stdin)", file=sys.stderr)
+        print("pass card names or -d FILE (- for stdin)", file=sys.stderr)
         return 2
 
     entries = [e for s in SECTIONS for e in sections[s]]
     report = Report()
     found, _ = resolve_names([e.name for e in entries], report)
-    formats = [f.strip() for f in args.formatos.split(",") if f.strip()]
+    formats = [f.strip() for f in args.formats.split(",") if f.strip()]
 
     rulings = {}
     for e in entries:
         e.card = found.get(fold(front_face(e.name)))
-        if e.card and args.regras:
+        if e.card and args.rulings:
             key = e.card.get("rulings_uri")
             if key not in rulings:
                 rulings[key] = fetch_rulings(e.card)
 
     if args.json:
-        payload = {"cartas": [], "nao_encontradas": list(report.missing)}
+        payload = {"cards": [], "not_found": list(report.missing)}
         for e in entries:
             if not e.card:
                 continue
-            item = trim_card(e.card, rulings.get(e.card.get("rulings_uri")) if args.regras else None)
-            item["pedido"] = e.name
-            item["qtd"] = e.qty
-            item["secao"] = e.section
-            payload["cartas"].append(item)
+            item = trim_card(e.card, rulings.get(e.card.get("rulings_uri")) if args.rulings else None)
+            item["requested"] = e.name
+            item["qty"] = e.qty
+            item["section"] = e.section
+            payload["cards"].append(item)
         json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
         print()
     else:
@@ -489,16 +489,16 @@ def cmd_carta(args):
                 if args.deck and e.qty != 1:
                     print(f"{e.qty}x", end=" ")
                 print(format_card(e.card, formats,
-                                  rulings.get(e.card.get("rulings_uri")) if args.regras else None))
+                                  rulings.get(e.card.get("rulings_uri")) if args.rulings else None))
     report.emit()
     return 1 if report.failed else 0
 
 
-def cmd_busca(args):
+def cmd_search(args):
     report = Report()
     params = {"q": args.query, "unique": args.unique}
-    if args.ordem:
-        params["order"] = args.ordem
+    if args.order:
+        params["order"] = args.order
     if args.dir:
         params["dir"] = args.dir
     cards, total = [], 0
@@ -506,26 +506,26 @@ def cmd_busca(args):
     while True:
         if is_error(resp):
             if resp.get("code") == "not_found":
-                print(f"nenhuma carta para a query: {args.query}", file=sys.stderr)
+                print(f"no cards for the query: {args.query}", file=sys.stderr)
                 if resp.get("details"):
                     print(f"  {resp['details']}", file=sys.stderr)
                 return 1
-            print(f"erro da Scryfall: {resp.get('details')}", file=sys.stderr)
+            print(f"Scryfall error: {resp.get('details')}", file=sys.stderr)
             return 1
         for w in resp.get("warnings") or []:
             if w not in report.warnings:
                 report.warnings.append(w)
         total = resp.get("total_cards", 0)
         cards.extend(resp.get("data") or [])
-        if not resp.get("has_more") or (not args.todas and len(cards) >= args.limite):
+        if not resp.get("has_more") or (not args.all and len(cards) >= args.limit):
             break
         resp = api(resp["next_page"])
-    if not args.todas:
-        cards = cards[:args.limite]
+    if not args.all:
+        cards = cards[:args.limit]
 
     if args.json:
-        json.dump({"total": total, "mostradas": len(cards),
-                   "cartas": [trim_card(c) for c in cards]},
+        json.dump({"total": total, "shown": len(cards),
+                   "cards": [trim_card(c) for c in cards]},
                   sys.stdout, ensure_ascii=False, indent=2)
         print()
     else:
@@ -536,15 +536,15 @@ def cmd_busca(args):
             print(f"{c.get('name')}  |  {cost}  |  {c.get('type_line', '')}"
                   + (f"  {stats}" if stats else "")
                   + f"  |  {c.get('set', '').upper()}")
-    print(f"{total} carta(s) no total, {len(cards)} mostrada(s)"
-          + ("" if args.todas or len(cards) >= total else
-             f". Use --limite N ou --todas para ver mais"), file=sys.stderr)
+    print(f"{total} card(s) in total, {len(cards)} shown"
+          + ("" if args.all or len(cards) >= total else
+             f". Use --limit N or --all to see more"), file=sys.stderr)
     report.emit()
     return 1 if report.failed else 0
 
 
-def cmd_edicoes(args):
-    card, err = lookup_one(args.nome)
+def cmd_printings(args):
+    card, err = lookup_one(args.name)
     if err:
         print(err, file=sys.stderr)
         return 1
@@ -552,24 +552,24 @@ def cmd_edicoes(args):
     resp = api(card["prints_search_uri"])
     while True:
         if is_error(resp):
-            print(f"erro da Scryfall: {resp.get('details')}", file=sys.stderr)
+            print(f"Scryfall error: {resp.get('details')}", file=sys.stderr)
             return 1
         prints.extend(resp.get("data") or [])
         if not resp.get("has_more"):
             break
         resp = api(resp["next_page"])
-    if args.sem_digital:
+    if args.no_digital:
         prints = [p for p in prints if not p.get("digital")]
-    if args.sem_promo:
+    if args.no_promo:
         prints = [p for p in prints if not p.get("promo")]
 
     if args.json:
-        json.dump({"nome": card["name"], "edicoes": [trim_card(p) for p in prints]},
+        json.dump({"name": card["name"], "printings": [trim_card(p) for p in prints]},
                   sys.stdout, ensure_ascii=False, indent=2)
         print()
         return 0
-    print(f"{card['name']} — {len(prints)} impressão(ões)")
-    print(f"{'set':<6} {'edição':<34} {'nº':>7} {'data':<10} {'acab.':<16} "
+    print(f"{card['name']} — {len(prints)} printing(s)")
+    print(f"{'set':<6} {'set name':<34} {'no.':>7} {'date':<10} {'finishes':<16} "
           f"{'usd':>8} {'usd foil':>9} {'eur':>8}  flags")
     for p in prints:
         pr = p.get("prices") or {}
@@ -581,7 +581,7 @@ def cmd_edicoes(args):
               f"{','.join(p.get('finishes') or []):<16} "
               f"{pr.get('usd') or '-':>8} {pr.get('usd_foil') or '-':>9} "
               f"{pr.get('eur') or '-':>8}  {flags}")
-        if args.imagem:
+        if args.image:
             for face in faces_of(p):
                 uri = (face.get("image_uris") or p.get("image_uris") or {}).get("normal")
                 if uri:
@@ -589,20 +589,20 @@ def cmd_edicoes(args):
     return 0
 
 
-def cmd_regras(args):
-    card, err = lookup_one(args.nome)
+def cmd_rulings(args):
+    card, err = lookup_one(args.name)
     if err:
         print(err, file=sys.stderr)
         return 1
     rulings = fetch_rulings(card)
     if args.json:
-        json.dump({"nome": card["name"],
+        json.dump({"name": card["name"],
                    "rulings": trim_card(card, rulings)["rulings"]},
                   sys.stdout, ensure_ascii=False, indent=2)
         print()
         return 0
     print(f"{card['name']} — {len(rulings)} ruling(s)" if rulings
-          else f"{card['name']} — sem rulings")
+          else f"{card['name']} — no rulings")
     for r in rulings:
         print(f"[{r.get('published_at')}] {r.get('comment')}")
     return 0
@@ -612,54 +612,54 @@ def cmd_regras(args):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(
-        description="Cartas de Magic pela API da Scryfall.")
+        description="Magic cards through the Scryfall API.")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--json", action="store_true",
-                        help="emitir JSON no stdout em vez de texto")
-    common.add_argument("--delay", type=float, default=DEFAULT_DELAY, metavar="SEG",
-                        help=f"pausa entre chamadas (padrão {DEFAULT_DELAY})")
+                        help="emit JSON on stdout instead of text")
+    common.add_argument("--delay", type=float, default=DEFAULT_DELAY, metavar="SEC",
+                        help=f"pause between calls (default {DEFAULT_DELAY})")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    p = sub.add_parser("carta", parents=[common],
-                       help="texto oracle de uma ou mais cartas")
-    p.add_argument("nomes", nargs="*", help="nomes (EN ou PT; 'A // B' aceito)")
-    p.add_argument("-d", "--deck", metavar="ARQ",
-                   help="decklist em qualquer formato; - para stdin")
-    p.add_argument("--formatos", default="commander",
-                   help="legalidades a mostrar, separadas por vírgula (padrão: commander)")
-    p.add_argument("--regras", action="store_true", help="incluir rulings")
-    p.set_defaults(fn=cmd_carta)
+    p = sub.add_parser("card", parents=[common],
+                       help="oracle text of one or more cards")
+    p.add_argument("names", nargs="*", help="names (EN or PT; 'A // B' accepted)")
+    p.add_argument("-d", "--deck", metavar="FILE",
+                   help="decklist in any format; - for stdin")
+    p.add_argument("--formats", default="commander",
+                   help="legalities to show, comma-separated (default: commander)")
+    p.add_argument("--rulings", action="store_true", help="include rulings")
+    p.set_defaults(fn=cmd_card)
 
-    p = sub.add_parser("busca", parents=[common],
-                       help="busca com a sintaxe da Scryfall")
+    p = sub.add_parser("search", parents=[common],
+                       help="search with Scryfall syntax")
     p.add_argument("query")
-    p.add_argument("--ordem", metavar="CAMPO",
+    p.add_argument("--order", metavar="FIELD",
                    help="name, cmc, released, usd, eur, edhrec, rarity, color, power, toughness...")
     p.add_argument("--dir", choices=("asc", "desc"))
     p.add_argument("--unique", default="cards", choices=("cards", "art", "prints"))
-    p.add_argument("--limite", type=int, default=50, metavar="N",
-                   help="máximo de cartas mostradas (padrão 50)")
-    p.add_argument("--todas", action="store_true", help="seguir todas as páginas")
-    p.set_defaults(fn=cmd_busca)
+    p.add_argument("--limit", type=int, default=50, metavar="N",
+                   help="maximum cards shown (default 50)")
+    p.add_argument("--all", action="store_true", help="follow every page")
+    p.set_defaults(fn=cmd_search)
 
-    p = sub.add_parser("edicoes", parents=[common],
-                       help="todas as impressões de uma carta")
-    p.add_argument("nome")
-    p.add_argument("--sem-digital", action="store_true", help="ocultar MTGO/Arena")
-    p.add_argument("--sem-promo", action="store_true")
-    p.add_argument("--imagem", action="store_true", help="URL da imagem por face")
-    p.set_defaults(fn=cmd_edicoes)
+    p = sub.add_parser("printings", parents=[common],
+                       help="every printing of a card")
+    p.add_argument("name")
+    p.add_argument("--no-digital", action="store_true", help="hide MTGO/Arena")
+    p.add_argument("--no-promo", action="store_true", help="hide promos")
+    p.add_argument("--image", action="store_true", help="image URL per face")
+    p.set_defaults(fn=cmd_printings)
 
-    p = sub.add_parser("regras", parents=[common], help="rulings de uma carta")
-    p.add_argument("nome")
-    p.set_defaults(fn=cmd_regras)
+    p = sub.add_parser("rulings", parents=[common], help="rulings of a card")
+    p.add_argument("name")
+    p.set_defaults(fn=cmd_rulings)
 
     args = ap.parse_args(argv)
     DELAY[0] = args.delay
     try:
         return args.fn(args)
     except (urllib.error.URLError, TimeoutError, OSError, RuntimeError) as exc:
-        print(f"falha de rede ou da API: {exc}", file=sys.stderr)
+        print(f"network or API failure: {exc}", file=sys.stderr)
         return 1
 
 

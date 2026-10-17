@@ -1,35 +1,35 @@
-# api2.moxfield.com — o que foi medido (2026-09-30)
+# api2.moxfield.com — what was measured (2026-09-30)
 
-Endpoint que o front do Moxfield usa. Nao documentado, sem garantia. Funciona com
-`curl` puro desde que vá `User-Agent` de navegador; sem UA ou com UA de script o
-Cloudflare devolve 403. O script manda tambem `Accept`, `Referer` e `Origin`.
+The endpoint Moxfield's front end uses. Undocumented, no guarantees. Works with
+plain `curl` as long as a browser `User-Agent` goes along; with no UA or a script
+UA Cloudflare returns 403. The script also sends `Accept`, `Referer` and `Origin`.
 
-| Chamada | Resultado |
+| Call | Result |
 |---|---|
-| `GET /v3/decks/all/<publicId>` | deck publico ou unlisted: 200 com JSON completo |
-| mesmo, deck privado ou id errado | 404 |
-| `GET /v2/decks/search?q=...&fmt=commander&pageSize=3&sortType=views&sortDirection=descending` | 200, `data[]` com `publicId`, `name`, `format`, `mainboardCount` |
-| qualquer POST/PUT sem bearer da sessao | nao testado — escrita e feita pelo navegador, ver `bulk-edit.md` |
+| `GET /v3/decks/all/<publicId>` | public or unlisted deck: 200 with full JSON |
+| same, private deck or wrong id | 404 |
+| `GET /v2/decks/search?q=...&fmt=commander&pageSize=3&sortType=views&sortDirection=descending` | 200, `data[]` with `publicId`, `name`, `format`, `mainboardCount` |
+| any POST/PUT without the session bearer | not tested — writing is done through the browser, see `bulk-edit.md` |
 
-`publicId` tem 22 chars base64url (`j-0aJlxuOUm9FnKRvJcfZw`) e aparece em
-`https://moxfield.com/decks/<publicId>`; sufixos `/primer`, `/export` etc. nao
-mudam o id.
+`publicId` is 22 base64url chars (`j-0aJlxuOUm9FnKRvJcfZw`) and appears in
+`https://moxfield.com/decks/<publicId>`; suffixes `/primer`, `/export` etc. don't
+change the id.
 
-## Forma do JSON
+## JSON shape
 
-Chaves de topo que importam:
+Top-level keys that matter:
 
 ```
 name, format, visibility ("public"|"unlisted"|"private"), publicId, publicUrl,
-bracket (1-5 ou null), autoBracket, colorIdentity ["W","R"], hubs[], version,
-main {name}            # carta de capa, NAO o comandante
-authorTags {nome: [tag, ...]}   # tags locais do deck, indexadas por NOME da carta
+bracket (1-5 or null), autoBracket, colorIdentity ["W","R"], hubs[], version,
+main {name}            # cover card, NOT the commander
+authorTags {name: [tag, ...]}   # the deck's local tags, keyed by card NAME
 boards {commanders, companions, mainboard, sideboard, maybeboard,
         signatureSpells, attractions, stickers, contraptions, planes, schemes, tokens}
-tokens[]               # tokens gerados, nao fazem parte do deck
+tokens[]               # generated tokens, not part of the deck
 ```
 
-Cada board e `{count, cards: {<id>: entrada}}`. Entrada:
+Each board is `{count, cards: {<id>: entry}}`. Entry:
 
 ```
 quantity, boardType, finish ("nonFoil"|"foil"|"etched"), isFoil, isAlter, isProxy,
@@ -38,18 +38,18 @@ card {id, uniqueCardId, scryfall_id, name, set, cn, set_name, layout, type_line,
       prices {usd, usd_foil, eur, eur_foil, ck, ct, scg, mp, tix_fb, ...}, card_faces[], ...}
 ```
 
-Pontos que pegam:
+Gotchas:
 
-- **Tags nao ficam na entrada da carta.** Estao em `authorTags`, por nome. A mesma
-  carta no main e no maybeboard compartilha as tags. Tags globais (`#!`) nao
-  aparecem no JSON publico — sao da conta, nao do deck.
-- `card.name` de carta dupla vem completo: `Delver of Secrets // Insectile Aberration`.
-  A Scryfall `/cards/collection` nao acha esse nome; o script cai para a face frontal.
-- `card.cn` pode ser `C15-56`, `MH1-7` (The List, set `plst`) ou ter `★`. Nao e inteiro.
-- `main.name` e a carta de capa escolhida pelo autor. O comandante esta em
+- **Tags don't live on the card entry.** They're in `authorTags`, by name. The same
+  card in main and in maybeboard shares the tags. Global tags (`#!`) don't
+  appear in the public JSON — they belong to the account, not the deck.
+- `card.name` of a double-faced card comes in full: `Delver of Secrets // Insectile Aberration`.
+  Scryfall `/cards/collection` doesn't find that name; the script falls back to the front face.
+- `card.cn` can be `C15-56`, `MH1-7` (The List, set `plst`) or contain `★`. It's not an integer.
+- `main.name` is the cover card chosen by the author. The commander is in
   `boards.commanders`.
-- `prices` sao de lojas americanas/europeias. BRL e assunto da `ligamagic-preco`.
-- Deck `format: "none"` existe (primers, listas soltas). `validar` so faz as regras de
-  Commander quando o formato e `commander`.
+- `prices` are from American/European stores. BRL is the `ligamagic-preco` skill's job.
+- Decks with `format: "none"` exist (primers, loose lists). `validate` only applies
+  the Commander rules when the format is `commander`.
 
-Sem rate limit medido em uso normal (poucas chamadas por minuto). Nao faca varredura.
+No rate limit measured under normal use (a few calls per minute). Don't crawl.

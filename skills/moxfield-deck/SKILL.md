@@ -1,148 +1,150 @@
 ---
 name: moxfield-deck
-description: Use para criar, atualizar, baixar, validar ou sincronizar um deck no Moxfield (moxfield.com) — "sobe esse deck pro Moxfield", "importa minha lista do Moxfield", "o deck local bate com o do Moxfield?", "troca X por Y no deck e atualiza lá", link moxfield.com/decks/..., Bulk Edit, tags do Moxfield, checar se o deck de Commander é legal (100 cartas, identidade de cor, singleton, banidas, game changers) antes de publicar. Vale mesmo quando o pedido não cita o Moxfield mas envolve manter uma decklist que vive lá.
-compatibility: Python 3 (stdlib). Leitura precisa de internet (api2.moxfield.com, api.scryfall.com). Escrita precisa do Claude in Chrome com moxfield.com liberado nas permissões da extensão e sessão logada.
+description: Use to create, update, pull, validate or sync a deck on Moxfield (moxfield.com) — "upload this deck to Moxfield", "import my list from Moxfield", "does the local deck match Moxfield?", "swap X for Y in the deck and update it there", a moxfield.com/decks/... link, Bulk Edit, Moxfield tags, checking a Commander deck is legal (100 cards, color identity, singleton, banned, game changers) before publishing. Applies even when the request doesn't mention Moxfield but involves maintaining a decklist that lives there.
+compatibility: Python 3 (stdlib). Reading needs internet (api2.moxfield.com, api.scryfall.com). Writing needs Claude in Chrome with moxfield.com allowed in the extension permissions and a logged-in session.
 metadata:
   author: kichelm
   version: "0.1"
 ---
 
-# Deck no Moxfield
+# Deck on Moxfield
 
-O Moxfield nao tem API publica. Leitura sai pelo mesmo endpoint JSON que o site
-usa (`api2.moxfield.com`), que responde a `curl` com User-Agent de navegador.
-Escrita so existe pelo site, logado — o script prepara o texto e o Claude in
-Chrome cola no **Bulk Edit**.
+Moxfield has no public API. Reading goes through the same JSON endpoint the site
+uses (`api2.moxfield.com`), which answers `curl` with a browser User-Agent.
+Writing only exists through the site, logged in — the script prepares the text
+and Claude in Chrome pastes it into **Bulk Edit**.
 
-Por isso a fonte da verdade e o **arquivo local**, versionado em git. O Moxfield e
-a vitrine: playtest, preco, compartilhar. Toda mudanca comeca no arquivo, passa
-por `validar`, vai para o site, e termina com `diff` confirmando que o site ficou
-igual ao arquivo.
+That's why the source of truth is the **local file**, versioned in git. Moxfield
+is the showcase: playtest, prices, sharing. Every change starts in the file, goes
+through `validate`, goes to the site, and ends with `diff` confirming the site
+matches the file.
 
-## Fluxo
+## Flow
 
 ```bash
 S=skills/moxfield-deck/scripts/moxfield.py
 
-# 1. trazer um deck existente (publico ou unlisted) para o repo
-python3 $S baixar https://moxfield.com/decks/<id> -o decks/markov-gang.txt
+# 1. bring an existing deck (public or unlisted) into the repo
+python3 $S pull https://moxfield.com/decks/<id> -o decks/markov-gang.txt
 
-# 2. editar o arquivo (ou criar do zero, formato abaixo)
+# 2. edit the file (or create it from scratch, format below)
 
-# 3. validar: nomes na Scryfall, 100 cartas, identidade de cor, singleton,
-#    banidas, game changers. Exit 1 = algum ERRO, nao siga. Exit 0 com a palavra
-#    `ok` = limpo; exit 0 com so AVISO = passou, mas leia os avisos e repasse-os.
-python3 $S validar decks/markov-gang.txt
+# 3. validate: names on Scryfall, 100 cards, color identity, singleton,
+#    banned, game changers. Exit 1 = some ERROR, don't proceed. Exit 0 with the
+#    word `ok` = clean; exit 0 with only WARNING = passed, but read the warnings
+#    and relay them.
+python3 $S validate decks/markov-gang.txt
 
-# 4. gerar o bloco de um board e colar no Bulk Edit (ver secao Navegador)
-python3 $S exportar decks/markov-gang.txt --board mainboard --copiar
+# 4. generate one board's block and paste it into Bulk Edit (see Browser section)
+python3 $S export decks/markov-gang.txt --board mainboard --copy
 
-# 5. conferir que o site ficou igual ao arquivo. Exit 0 = igual.
+# 5. confirm the site matches the file. Exit 0 = identical.
 python3 $S diff decks/markov-gang.txt <id>
 ```
 
-Deck novo: crie o arquivo, `validar`, crie o deck vazio no site, cole o
-`publicId` em `// Moxfield:`, cole os boards, `diff`.
+New deck: create the file, `validate`, create the empty deck on the site, paste
+the `publicId` into `// Moxfield:`, paste the boards, `diff`.
 
-Troca de carta pedida pelo usuario ("tira X, poe Y"): leia o oracle das duas na
-Scryfall antes de opinar (skill `scryfall-cartas`; regra do `AGENTS.md`), edite o
-arquivo, `validar`,
-depois o site. Nao edite no site primeiro — o arquivo e que e versionado.
+Card swap requested by the user ("take out X, put in Y"): read the oracle text of
+both on Scryfall before giving an opinion (skill `scryfall-cards`; rule in
+`AGENTS.md`), edit the file, `validate`,
+then the site. Don't edit on the site first — the file is what's versioned.
 
-## Formato do arquivo local
+## Local file format
 
-E a sintaxe do Bulk Edit do Moxfield mais cabecalhos de secao, entao o que
-`baixar` grava e o que `exportar` cola sao o mesmo texto:
+It's Moxfield's Bulk Edit syntax plus section headers, so what `pull` writes and
+what `export` pastes are the same text:
 
 ```
 // Moxfield: https://moxfield.com/decks/<publicId>
-// Nome: Markov Gang
-// Formato: commander
+// Name: Markov Gang
+// Format: commander
 // Bracket: 3
 
 // Commander
 1 Olivia, Opulent Outlaw (OTJ) 229 *F*
 
 // Mainboard
-1 Edgar Markov (C17) 36 #cmd-alternativo #vampiro
+1 Edgar Markov (C17) 36 #alt-commander #vampire
 1 Sol Ring (CMM) 410 #ramp
 8 Swamp
 
 // Sideboard
 // Maybeboard
-1 Bloodghast #vampiro
+1 Bloodghast #vampire
 ```
 
-- `qtd nome (SET) numero *F* *A* #tag #!tagGlobal` — tudo depois do nome e
-  opcional e a ordem nao importa. Set e numero fixam a impressao; sem eles o
-  Moxfield escolhe. Tag com espaco nao existe: `#ramp-rapido`.
-- Cabecalhos aceitos: `// Commander`, `// Mainboard`, `// Sideboard`,
-  `// Maybeboard`, `// Companion`, com ou sem `//`, em portugues tambem
-  (`Comandante`, `Reserva`, `Considerando`). Sem nenhum cabecalho tudo vai para
-  Mainboard e o script avisa — e assim que o Export do site chega.
-- `// Chave: valor` no topo e metadado livre; `Moxfield` e `Formato` sao os que o
-  script le. Comentario que nao tem `:` e ignorado.
-- Total de 100 = Commander + Companion + Mainboard. Sideboard e Maybeboard nao
-  contam.
+- `qty name (SET) number *F* *A* #tag #!globalTag` — everything after the name is
+  optional and order doesn't matter. Set and number pin the printing; without
+  them Moxfield picks one. Tags with spaces don't exist: `#fast-ramp`.
+- Accepted headers: `// Commander`, `// Mainboard`, `// Sideboard`,
+  `// Maybeboard`, `// Companion`, with or without `//`, in Portuguese too
+  (`Comandante`, `Reserva`, `Considerando`). With no header at all everything
+  goes to Mainboard and the script warns — that's how the site's Export arrives.
+- `// Key: value` at the top is free-form metadata; `Moxfield` and `Format` are
+  the ones the script reads. The Portuguese keys older files use (`Nome`,
+  `Formato`) still parse. A comment without `:` is ignored.
+- The 100 total = Commander + Companion + Mainboard. Sideboard and Maybeboard
+  don't count.
 
-## Navegador
+## Browser
 
-Antes de abrir o site: `tabs_context_mcp`. Se `navigate` para moxfield.com
-devolver "This site is blocked by your site permissions", pare e peca ao usuario
-para liberar `moxfield.com` na extensao Claude in Chrome — nao ha contorno.
-Playwright headless nao serve: o deck e da conta do usuario e precisa da sessao
-logada que so existe no Chrome dele.
+Before opening the site: `tabs_context_mcp`. If `navigate` to moxfield.com
+returns "This site is blocked by your site permissions", stop and ask the user
+to allow `moxfield.com` in the Claude in Chrome extension — there's no
+workaround. Headless Playwright won't do: the deck belongs to the user's account
+and needs the logged-in session that only exists in their Chrome.
 
-Passo a passo dos controles (New Deck, Bulk Edit por board, Save, Export) e a
-forma de colar 100 linhas sem digitar uma a uma estao em
-`references/bulk-edit.md`. Leia antes do primeiro clique. Ache botoes por texto
-com `find`; nao chute coordenadas.
+The step-by-step of the controls (New Deck, Bulk Edit per board, Save, Export)
+and how to paste 100 lines without typing them one by one are in
+`references/bulk-edit.md`. Read it before the first click. Find buttons by text
+with `find`; don't guess coordinates.
 
-Depois de **Save**, rode `diff`. O Moxfield descarta linha que nao reconhece sem
-avisar, entao "salvou" nao quer dizer "entrou".
+After **Save**, run `diff`. Moxfield drops lines it doesn't recognize without
+warning, so "saved" doesn't mean "got in".
 
-## Armadilhas
+## Traps
 
-**Bulk Edit nao remove tag.** Apagar `#tag` da linha e salvar deixa a tag la. Para
-tirar, e na Table View (shift-click → Manage Tags). O `diff` mostra `tags [...] ->
-[...]` ate voce fazer isso.
+**Bulk Edit doesn't remove tags.** Deleting `#tag` from the line and saving leaves
+the tag there. To remove it, use Table View (shift-click → Manage Tags). `diff`
+shows `tags [...] -> [...]` until you do.
 
-**Comandante na caixa errada vira 101 cartas.** Ele tem caixa propria no Bulk
-Edit. `validar` ja reclama se o arquivo nao tem `// Commander`.
+**Commander in the wrong box becomes 101 cards.** It has its own box in Bulk
+Edit. `validate` already complains if the file has no `// Commander`.
 
-**Deck privado da 404 em `baixar` e `diff`.** O api2 so entrega public e unlisted.
-Para deck seu, deixe-o unlisted enquanto trabalha; ninguem acha unlisted sem o
-link. Se tiver que ficar privado, use Export → Text no site e acrescente os
-cabecalhos de secao na mao.
+**A private deck gives 404 on `pull` and `diff`.** api2 only serves public and
+unlisted. For your own deck, keep it unlisted while working; nobody finds an
+unlisted deck without the link. If it has to stay private, use Export → Text on
+the site and add the section headers by hand.
 
-**403 do Cloudflare.** Acontece se o User-Agent nao parecer navegador ou em
-rajada. O script ja manda UA de Chrome; se mesmo assim der 403, espere um minuto.
-Nao rode `baixar` em loop sobre muitos decks.
+**Cloudflare 403.** Happens if the User-Agent doesn't look like a browser, or in
+bursts. The script already sends a Chrome UA; if it still gets 403, wait a minute.
+Don't run `pull` in a loop over many decks.
 
-**Nome dupla-face.** O Moxfield grava `Delver of Secrets // Insectile Aberration`;
-a Scryfall `/cards/collection` nao acha esse nome. O script tenta a face frontal
-sozinho. Se `validar` disser que resolveu como outro nome, confira — pode ser typo
-corrigido pelo fuzzy, pode ser carta errada.
+**Double-faced names.** Moxfield stores `Delver of Secrets // Insectile Aberration`;
+Scryfall `/cards/collection` doesn't find that name. The script tries the front
+face on its own. If `validate` says it resolved as another name, check it — it may
+be a typo fixed by fuzzy, it may be the wrong card.
 
-**`validar` conhece Commander, nao os outros formatos a fundo.** Para `Formato:`
-diferente de commander ele checa so nomes e legalidade; tamanho de deck e
-singleton ficam por sua conta.
+**`validate` knows Commander, not the other formats in depth.** For a `Format:`
+other than commander it checks only names and legality; deck size and singleton
+are up to you.
 
-**Game changers e bracket.** `validar` lista os game changers do deck (campo
-`game_changer` da Scryfall). Bracket 3 aceita ate 3; o deck do usuario mira
-bracket 3–4 e nao quer combo infinito — isso o script nao detecta, voce precisa
-ler as cartas.
+**Game changers and bracket.** `validate` lists the deck's game changers
+(Scryfall's `game_changer` field). Bracket 3 allows up to 3; the user's deck aims
+for bracket 3–4 and doesn't want infinite combos — the script doesn't detect
+that, you need to read the cards.
 
-**Preco em BRL e assunto da `ligamagic-preco`**; o JSON do Moxfield traz USD/EUR.
-Para espelhar o mesmo arquivo na LigaMagic, `ligamagic-deck` le este formato
-(cabecalhos e tags inclusos).
+**BRL prices are the `ligamagic-preco` skill's job**; Moxfield's JSON carries
+USD/EUR. To mirror the same file on LigaMagic, `ligamagic-deck` reads this
+format (headers and tags included).
 
-## Testes
+## Tests
 
 ```bash
 python3 -m unittest discover -s skills/moxfield-deck/tests
 ```
 
-Forma do JSON do api2, chamadas medidas e o que muda entre public/unlisted/private
-estao em `references/api.md` — leia quando `baixar --json` for necessario ou algo
-no JSON nao bater com o esperado.
+The shape of the api2 JSON, measured calls and what changes between
+public/unlisted/private are in `references/api.md` — read it when
+`pull --json` is needed or something in the JSON doesn't match expectations.

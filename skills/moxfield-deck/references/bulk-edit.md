@@ -1,70 +1,73 @@
-# Bulk Edit e import no Moxfield
+# Bulk Edit and import on Moxfield
 
-## Sintaxe de linha
+## Line syntax
 
-Vale no Bulk Edit, no "Paste in List" do deck novo e no `exportar` do script:
+Applies in Bulk Edit, in a new deck's "Paste in List", and in the script's `export`:
 
 ```
-<qtd> <nome> (<SET>) <numero> *F* *A* #tag #!tagGlobal
+<qty> <name> (<SET>) <number> *F* *A* #tag #!globalTag
 1 Sol Ring (CMM) 410 *F* #ramp
 1 Olivia, Opulent Outlaw
 ```
 
-- Set e numero de colecionador sao opcionais; sem eles o Moxfield escolhe uma
-  impressao padrao (a mais recente nao-promo).
-- `*F*` foil, `*A*` alterada. `*E*` (etched) o script tambem le.
-- `#tag` e tag do deck; `#!tag` e tag global da conta. Tag nao pode ter espaco —
-  use `#ramp-rapido`.
-- Nome com `//` funciona (`Fire // Ice`, `Delver of Secrets // Insectile Aberration`).
-- Linha que o Moxfield nao reconhece e **descartada em silencio** ao salvar; a
-  carta some sem aviso. Por isso o fluxo termina sempre com `diff`.
-- **Bulk Edit adiciona tag mas nao remove.** Tirar `#tag` da linha e salvar deixa a
-  tag como estava. Para remover: Table View, shift-click na carta, "Manage Tags".
+- Set and collector number are optional; without them Moxfield picks a default
+  printing (the most recent non-promo).
+- `*F*` foil, `*A*` altered. `*E*` (etched) the script reads too.
+- `#tag` is a deck tag; `#!tag` is an account-wide global tag. Tags can't have
+  spaces — use `#fast-ramp`.
+- Names with `//` work (`Fire // Ice`, `Delver of Secrets // Insectile Aberration`).
+- A line Moxfield doesn't recognize is **silently dropped** on save; the card
+  disappears without warning. That's why the flow always ends with `diff`.
+- **Bulk Edit adds tags but doesn't remove them.** Removing `#tag` from the line
+  and saving leaves the tag as it was. To remove: Table View, shift-click the
+  card, "Manage Tags".
 
-Prefixos aceitos no import de texto (nao no Bulk Edit, que tem uma caixa por board):
-`sideboard:` / `side:` / `sb:` manda a linha para o sideboard; `maybe:` /
-`maybeboard:` / `consider:` / `considering:` para o maybeboard. Nao ha prefixo de
-comandante no import — o comandante e escolhido depois, na pagina do deck.
+Prefixes accepted in text import (not in Bulk Edit, which has one box per board):
+`sideboard:` / `side:` / `sb:` sends the line to the sideboard; `maybe:` /
+`maybeboard:` / `consider:` / `considering:` to the maybeboard. There's no
+commander prefix in import — the commander is chosen afterwards, on the deck page.
 
-## Caminho no site (deck proprio, logado)
+## Path on the site (own deck, logged in)
 
-Documentado a partir das referencias publicas; o Claude in Chrome ainda nao abriu o
-site logado para conferir, entao localize os controles pelo texto (`find`) em vez
-de confiar em posicao.
+Documented from public references; Claude in Chrome hasn't opened the logged-in
+site to confirm yet, so locate the controls by text (`find`) instead of trusting
+position.
 
-**Criar deck**
+**Create deck**
 
-1. `https://moxfield.com/decks/personal` → botao **New Deck** (ou `/decks/new`).
-2. Formulario: **Name**, **Format** (Commander / EDH), **Visibility**
-   (Public / Unlisted / Private). Deixe Unlisted ate o deck estar validado — assim
-   `baixar`/`diff` funcionam e ninguem ve lista pela metade.
-3. Salvar o deck vazio e **copiar o `publicId` da URL** para a linha
-   `// Moxfield:` do arquivo local.
+1. `https://moxfield.com/decks/personal` → **New Deck** button (or `/decks/new`).
+2. Form: **Name**, **Format** (Commander / EDH), **Visibility**
+   (Public / Unlisted / Private). Leave it Unlisted until the deck is validated —
+   that way `pull`/`diff` work and nobody sees a half-finished list.
+3. Save the empty deck and **copy the `publicId` from the URL** into the
+   `// Moxfield:` line of the local file.
 
-**Atualizar lista (Bulk Edit)**
+**Update list (Bulk Edit)**
 
-1. Na pagina do deck, menu **More** (ou o lapis de edicao) → **Bulk Edit**.
-2. O modal tem uma aba/caixa por board: Commander(s), Mainboard, Sideboard,
-   Maybeboard (e outros que nao interessam). Cada caixa mostra o conteudo atual
-   do board nessa mesma sintaxe.
-3. Para cada board que mudou: `exportar deck.txt --board <board> --copiar`,
-   selecionar tudo na caixa (ctrl+a) e colar. Colar via `type` do `computer` com
-   100 linhas e lento; melhor `javascript_tool` setando `textarea.value` e
-   disparando `new Event("input", {bubbles: true})` para o React enxergar.
-4. **Save**. Cartas rejeitadas somem sem aviso.
-5. `diff deck.txt <id>` ate dar `igual`.
+1. On the deck page, **More** menu (or the edit pencil) → **Bulk Edit**.
+2. The modal has one tab/box per board: Commander(s), Mainboard, Sideboard,
+   Maybeboard (and others that don't matter). Each box shows the board's current
+   contents in this same syntax.
+3. For each board that changed: `export deck.txt --board <board> --copy`,
+   select everything in the box (ctrl+a) and paste. Pasting via `computer`'s
+   `type` with 100 lines is slow; better to use `javascript_tool` setting
+   `textarea.value` and dispatching `new Event("input", {bubbles: true})` so
+   React sees it.
+4. **Save**. Rejected cards disappear without warning.
+5. `diff deck.txt <id>` until it says `identical`.
 
-O comandante tem que ir na caixa Commander. Na caixa Mainboard ele vira a 101a carta
-e o Moxfield marca o deck como ilegal — `validar` pega isso antes de voce colar.
+The commander has to go in the Commander box. In the Mainboard box it becomes the
+101st card and Moxfield flags the deck as illegal — `validate` catches this before
+you paste.
 
-**Metadados** (bracket, descricao/primer, hubs, capa) ficam em **Edit deck
-details**, nao no Bulk Edit. `baixar` traz `bracket` e `visibilidade` no cabecalho
-do arquivo so para registro; o script nao os altera.
+**Metadata** (bracket, description/primer, hubs, cover) lives in **Edit deck
+details**, not in Bulk Edit. `pull` brings `bracket` and `visibility` into the
+file header just for the record; the script doesn't change them.
 
-## Export do site
+## Export from the site
 
-Menu **Export** na pagina do deck: Text / Arena / MTGO / CSV. O texto do Moxfield usa
-a mesma sintaxe de linha acima, com os boards separados por linha em branco e sem
-cabecalho — `parse_deck` trata isso como tudo-mainboard e avisa. Para deck proprio
-privado, exporte por ai e adicione os cabecalhos `// Commander` / `// Mainboard` na
-mao, ou torne o deck unlisted e use `baixar`.
+**Export** menu on the deck page: Text / Arena / MTGO / CSV. Moxfield's text uses
+the same line syntax above, with boards separated by a blank line and no
+header — `parse_deck` treats this as all-mainboard and warns. For your own
+private deck, export from there and add the `// Commander` / `// Mainboard`
+headers by hand, or make the deck unlisted and use `pull`.
