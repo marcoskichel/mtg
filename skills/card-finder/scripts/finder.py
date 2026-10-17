@@ -21,6 +21,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scryfall-cards" / "scripts"))
 import scryfall  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "edhrec" / "scripts"))
+import edhrec  # noqa: E402  (deck_names: Moxfield-syntax deck files and loose lists)
 
 CACHE_DIR = Path.home() / ".cache" / "mtg-skills"
 TAGS_FILE = CACHE_DIR / "oracle-tags.jsonl.gz"
@@ -32,6 +34,12 @@ TAG_RE = re.compile(
     r'(?<![\w-])(?P<neg>-?)(?:otag|oracletag|function)[:=]'
     r'(?:"(?P<quoted>[^"]+)"|(?P<bare>[^\s()]+))', re.I)
 LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+
+# What a card does for a deck, as score-card counts it. Slugs are oracle tags;
+# each counts its descendants (removal covers removal-creature, ...).
+ROLES = ("ramp", "mana-rock", "cost-reducer", "draw", "card-advantage", "removal",
+         "sweeper", "counterspell", "protection", "tutor", "sacrifice-outlet",
+         "recursion")
 
 
 def norm(s):
@@ -339,6 +347,42 @@ def matched_tags(idx, wanted, card):
 
 # --------------------------------------------------------------------------- #
 
+def missing_roles(idx):
+    return [r for r in ROLES if idx.resolve(r) is None]
+
+
+def card_roles(idx, cards):
+    """Card name -> roles it carries, in ROLES order. Offline: bulk tag file only."""
+    sets = {r: idx.cards(idx.resolve(r)) for r in ROLES if idx.resolve(r)}
+    return {c["name"]: [r for r in ROLES if r in sets and c.get("oracle_id") in sets[r]]
+            for c in cards}
+
+
+def cmd_roles(args):
+    names = edhrec.deck_names(args.deck) if args.deck else args.names
+    idx = TagIndex(load_tags(args.refresh))
+    gone = missing_roles(idx)
+    if gone:
+        print(f"warning: role tags missing from Scryfall's tag file: {', '.join(gone)}",
+              file=sys.stderr)
+    report = scryfall.Report()
+    found, wanted = scryfall.resolve_names(names, report)
+    report.emit()
+    cards = [found[k] for k in wanted if k in found]
+    roles = card_roles(idx, cards)
+    counts = {r: sum(1 for v in roles.values() if r in v) for r in ROLES}
+    if args.json:
+        print(json.dumps({"cards": roles, "counts": counts}, indent=2, ensure_ascii=False))
+    else:
+        for name, rs in roles.items():
+            print(f"{name}: {', '.join(rs) if rs else '(no roles tagged)'}")
+        if args.deck:
+            print("\ncounts:")
+            for r in ROLES:
+                print(f"  {r}: {counts[r]}")
+    return 1 if report.missing or gone else 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Find Magic cards by function through Scryfall oracle tags.")
@@ -375,7 +419,15 @@ def main(argv=None):
                    help=f"pause between calls (default {scryfall.DEFAULT_DELAY})")
     p.set_defaults(fn=cmd_find)
 
+    p = sub.add_parser("roles", parents=[common],
+                       help="ramp/draw/removal/... a card or deck carries (offline tag file)")
+    p.add_argument("names", nargs="*")
+    p.add_argument("-d", "--deck", metavar="FILE", help="deck file or list ('-' = stdin)")
+    p.set_defaults(fn=cmd_roles)
+
     args = ap.parse_args(argv)
+    if args.cmd == "roles" and not args.names and not args.deck:
+        ap.error("roles: give names or -d FILE")
     if getattr(args, "delay", None) is not None:
         scryfall.DELAY[0] = args.delay
     try:

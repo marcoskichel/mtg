@@ -3,6 +3,7 @@
 import io
 import json
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -199,6 +200,108 @@ class TagCmds(unittest.TestCase):
         code, out, err, _ = run(["tag", "nope-nope"])
         self.assertEqual(code, 1)
         self.assertIn("UNKNOWN TAG", err)
+
+
+ROLE_TAGS = [
+    tag("ramp", "ramp", children=["mr"]),
+    tag("mr", "mana-rock", ["o-sol"], parents=["ramp"]),
+    tag("cr", "cost-reducer"),
+    tag("dr", "draw", ["o-div"]),
+    tag("ca", "card-advantage"),
+    tag("rm", "removal", children=["rc"]),
+    tag("rc", "removal-creature", ["o-bolt"], parents=["rm"]),
+    tag("sw", "sweeper", ["o-wrath"]),
+    tag("cs", "counterspell"),
+    tag("pr", "protection"),
+    tag("tu", "tutor"),
+    tag("so", "sacrifice-outlet", ["o-altar"]),
+    tag("rec", "recursion"),
+]
+
+
+class RolesTest(unittest.TestCase):
+    def setUp(self):
+        self.idx = finder.TagIndex(ROLE_TAGS)
+
+    def test_role_list_is_exact(self):
+        self.assertEqual(finder.ROLES, (
+            "ramp", "mana-rock", "cost-reducer", "draw", "card-advantage", "removal",
+            "sweeper", "counterspell", "protection", "tutor", "sacrifice-outlet",
+            "recursion"))
+
+    def test_all_roles_present_in_fixture(self):
+        self.assertEqual(finder.missing_roles(self.idx), [])
+
+    def test_missing_role_reported(self):
+        idx = finder.TagIndex([t for t in ROLE_TAGS if t["slug"] != "tutor"])
+        self.assertEqual(finder.missing_roles(idx), ["tutor"])
+
+    def test_parent_role_counts_descendants(self):
+        cards = [card("Sol Ring", "o-sol", "{T}: Add {C}{C}."),
+                 card("Lightning Bolt", "o-bolt", "Deal 3 damage to any target.")]
+        roles = finder.card_roles(self.idx, cards)
+        self.assertEqual(roles["Sol Ring"], ["ramp", "mana-rock"])
+        self.assertEqual(roles["Lightning Bolt"], ["removal"])
+
+    def test_untagged_card_gets_empty_list(self):
+        roles = finder.card_roles(self.idx, [card("Grizzly Bears", "o-bears", "")])
+        self.assertEqual(roles["Grizzly Bears"], [])
+
+
+class RolesCliTest(unittest.TestCase):
+    def run_cli(self, argv, found):
+        def fake_resolve(names, report):
+            wanted = {scryfall.fold(scryfall.front_face(n)): n for n in names}
+            for k, n in wanted.items():
+                if k not in found:
+                    report.missing[n] = ""
+            return {k: v for k, v in found.items() if k in wanted}, wanted
+
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(finder, "load_tags", return_value=ROLE_TAGS), \
+             mock.patch.object(scryfall, "resolve_names", side_effect=fake_resolve), \
+             redirect_stdout(out), redirect_stderr(err):
+            code = finder.main(argv)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_names(self):
+        found = {"sol ring": card("Sol Ring", "o-sol", "")}
+        code, out, _ = self.run_cli(["roles", "Sol Ring"], found)
+        self.assertEqual(code, 0)
+        self.assertIn("Sol Ring: ramp, mana-rock", out)
+
+    def test_untagged_says_so(self):
+        found = {"grizzly bears": card("Grizzly Bears", "o-bears", "")}
+        code, out, _ = self.run_cli(["roles", "Grizzly Bears"], found)
+        self.assertIn("Grizzly Bears: (no roles tagged)", out)
+
+    def test_dfc_resolves_front_face(self):
+        found = {"delver of secrets": card("Delver of Secrets // Insectile Aberration",
+                                           "o-div", "")}
+        code, out, _ = self.run_cli(["roles", "Delver of Secrets // Insectile Aberration"],
+                                    found)
+        self.assertEqual(code, 0)
+        self.assertIn("Delver of Secrets // Insectile Aberration: draw", out)
+
+    def test_deck_file_counts_and_tags_stripped(self):
+        text = ("// Commander\n1 Saruman, the White Hand (LTC) 8 #cmd\n\n"
+                "// Mainboard\n1 Sol Ring (CMM) 410 #ramp\n1 Lightning Bolt\n")
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+            f.write(text)
+        self.addCleanup(Path(f.name).unlink)
+        found = {"sol ring": card("Sol Ring", "o-sol", ""),
+                 "lightning bolt": card("Lightning Bolt", "o-bolt", ""),
+                 "saruman, the white hand": card("Saruman, the White Hand", "o-sar", "")}
+        code, out, _ = self.run_cli(["roles", "-d", f.name], found)
+        self.assertEqual(code, 0)
+        self.assertIn("ramp: 1", out)
+        self.assertIn("removal: 1", out)
+        self.assertNotIn("#ramp", out)
+
+    def test_json(self):
+        found = {"sol ring": card("Sol Ring", "o-sol", "")}
+        code, out, _ = self.run_cli(["roles", "Sol Ring", "--json"], found)
+        self.assertEqual(json.loads(out)["cards"]["Sol Ring"], ["ramp", "mana-rock"])
 
 
 if __name__ == "__main__":
