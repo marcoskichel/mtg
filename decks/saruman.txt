@@ -1,0 +1,96 @@
+// Moxfield: https://moxfield.com/decks/0mSY1yPQuUa0X8sTNnRCHA
+// Nome: Saruman the white hand
+// Formato: commander
+// Visibilidade: public
+// Bracket: 3
+
+// Commander
+1 Saruman, the White Hand (LTC) 8
+
+// Mainboard
+1 An Offer You Can't Refuse (BLC) 170
+1 Arcane Signet (ELD) 331
+1 Archmage Emeritus (FIC) 261
+1 Ash Barrens (PLST) CM2-235
+1 Assault on Osgiliath (LTR) 285
+1 Barad-dûr (LTR) 253
+1 Blasphemous Act (CMR) 162
+1 Bulk Up (FDN) 80
+1 Cast Away Doubt (FRA) 51
+1 Chain Reaction (C21) 161
+1 Chameleon, Master of Disguise (SPM) 27
+1 Chandra's Ignition (FDC) 145
+1 Command Tower (ELD) 333
+1 Consider (MID) 388
+1 Crumbling Necropolis (WHO) 268
+1 Darkwater Catacombs (MKC) 257
+1 Deduce (MKM) 293
+1 Deep Analysis (PLST) EMA-45
+1 Dimir Signet (MKC) 226
+1 Dragonskull Summit (DSC) 271
+1 Dream Harvest (ECL) 216
+1 Evolving Wilds (PLST) C18-245
+1 Exotic Orchard (C19) 242
+1 Exsanguinate (J25) 437
+1 Feed the Swarm (ZNR) 102
+1 Fellwar Stone (FRC) 57
+1 Fiery Inscription (LTR) 126
+1 Finale of Revelation (WAR) 51
+1 Fling (ELD) 126
+1 Foray of Orcs (LTR) 128
+1 Frantic Search (UMA) 57
+1 Gilded Lotus (MSC) 199
+1 Go for the Throat (PLST) C17-114
+1 Haunted Ridge (FRA) 180
+1 Infernal Grasp (MID) 107
+6 Island (J25) 86
+1 Key to the Side-Door (HOB) 175
+1 Languish (LTC) 202
+1 Maestros Theater (SNC) 251
+1 Masterful Flourish (SOS) 89
+1 Mauhúr, Uruk-hai Captain (LTR) 214
+1 Maximum Overdrive (DFT) 96
+1 Memory Plunder (C17) 178
+1 Mindsplice Apparatus (ONE) 63
+1 Molten Tributary (DMU) 251
+5 Mountain (J25) 90
+1 Murmuring Volume (FRA) 174
+1 Mystic Retrieval (C19) 90
+1 Negate (M20) 69
+1 Orcish Medicine (LTR) 104
+1 Orcish Siegemaster (LTC) 33
+1 Path of Ancestry (CMR) 353
+1 Pull from Tomorrow (CLB) 731
+1 Quick Study (WOE) 65
+1 Rakdos Charm (LCC) 284
+1 Reality Shift (ECC) 68
+1 Refute (FDN) 313
+1 Ringsight (LTR) 220
+1 Samut, Tyrant of Naktamun (FRA) 220
+1 Saruman's Trickery (LTR) 68
+1 Shadowblood Ridge (NCC) 426
+1 Shark Typhoon (FRC) 44
+1 Shivan Reef (FRC) 83
+1 Smoldering Marsh (C20) 314
+1 Sol Ring (C19) 221
+1 Soul's Fire (UMA) 148
+1 Stormcarved Coast (WHO) 308
+1 Sulfurous Springs (FRC) 85
+1 Summons of Saruman (LTC) 70
+1 Sunken Hollow (NCC) 431
+5 Swamp (J25) 89
+1 Swan Song (EOC) 46
+1 Swiftfoot Boots (C20) 254
+1 Temple of Deceit (THB) 245
+1 Temple of Epiphany (M21) 252
+1 Temple of Malice (THB) 247
+1 Terramorphic Expanse (CM2) 273
+1 The Ozolith (IKO) 237
+1 Theorix Charm (FRA) 155
+1 Treason of Isengard (LTR) 74
+1 Twinned Vision (FRA) 157
+1 Unleash Fury (M21) 170
+1 Volcanic Salvo (M21) 172
+1 Waterlogged Teachings // Inundated Archive (MH3) 261
+1 Widespread Brutality (WAR) 226
+1 Wizard's Retort (JMP) 198
