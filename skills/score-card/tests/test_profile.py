@@ -146,5 +146,158 @@ class FreshnessTest(unittest.TestCase):
         self.assertEqual(prof.freshness({"bracket": "3"}, None, None, {})[0], "fresh")
 
 
+def sc(name, cmc, type_line, ci, produced=None, gc=False, oid=None):
+    return {"name": name, "cmc": cmc, "type_line": type_line, "color_identity": ci,
+            "produced_mana": produced or [], "game_changer": gc,
+            "oracle_id": oid or name.lower()}
+
+
+CARDS = {
+    "saruman, the white hand": sc("Saruman, the White Hand", 4, "Legendary Creature — Avatar",
+                                  ["U", "B", "R"]),
+    "sol ring": sc("Sol Ring", 1, "Artifact", [], ["C"], gc=True),
+    "arcane signet": sc("Arcane Signet", 2, "Artifact", [], ["W", "U", "B", "R", "G"]),
+    "lightning bolt": sc("Lightning Bolt", 1, "Instant", ["R"]),
+    "counterspell": sc("Counterspell", 2, "Instant", ["U"]),
+    "brainstorm": sc("Brainstorm", 1, "Instant", ["U"]),
+    "ponder": sc("Ponder", 1, "Sorcery", ["U"]),
+    "preordain": sc("Preordain", 1, "Sorcery", ["U"]),
+    "island": sc("Island", 0, "Basic Land — Island", [], ["U"]),
+}
+ROLES = {"Sol Ring": ["ramp", "mana-rock"], "Arcane Signet": ["ramp", "mana-rock"],
+         "Lightning Bolt": ["removal"], "Counterspell": ["counterspell"],
+         "Brainstorm": ["draw"], "Ponder": [], "Preordain": [], "Island": [],
+         "Saruman, the White Hand": []}
+
+
+class FactsTest(unittest.TestCase):
+    def setUp(self):
+        self.f = prof.facts(boards_of(DECK)[0], CARDS, ROLES)
+
+    def test_size_excludes_maybeboard(self):
+        self.assertEqual(self.f["deck_size"], 16)
+
+    def test_curve_counts_nonlands_with_quantity(self):
+        self.assertEqual(self.f["curve"], {1: 5, 2: 2, 4: 1})
+        self.assertAlmostEqual(self.f["avg_mv"], 13 / 8)
+
+    def test_sources_count_lands_and_rocks(self):
+        self.assertEqual(self.f["sources"]["U"], 9)
+        self.assertEqual(self.f["sources"]["C"], 1)
+
+    def test_role_counts_and_game_changers(self):
+        self.assertEqual(self.f["role_counts"]["ramp"], 2)
+        self.assertEqual(self.f["role_counts"]["removal"], 1)
+        self.assertEqual(self.f["game_changers"], ["Sol Ring"])
+
+    def test_mdfc_spell_land_counts_as_spell(self):
+        cards = dict(CARDS)
+        cards["ponder"] = sc("Ponder", 1, "Sorcery // Land", ["U"])
+        f = prof.facts(boards_of(DECK)[0], cards, ROLES)
+        self.assertEqual(f["curve"][1], 5)
+
+    def test_sources_ignore_colors_outside_identity(self):
+        cards = dict(CARDS)
+        cards["island"] = sc("Command Tower", 0, "Land", [], ["W", "U", "B", "R", "G"])
+        f = prof.facts(boards_of(DECK)[0], cards, ROLES)
+        self.assertNotIn("W", f["sources"])
+        self.assertNotIn("G", f["sources"])
+        self.assertEqual(f["sources"]["U"], 9)
+
+    def test_colors_from_commander(self):
+        self.assertEqual(self.f["colors"], "ubr")
+
+
+class CliTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.deck = self.dir / "test.txt"
+        self.deck.write_text(DECK)
+
+    def run_cli(self, argv):
+        def fake_load(boards):
+            return CARDS, ROLES, []
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(prof, "load_cards", side_effect=fake_load), \
+             mock.patch.object(sys, "stdout", out), mock.patch.object(sys, "stderr", err):
+            code = prof.main(argv)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_show_without_profile_says_no_profile(self):
+        code, out, err = self.run_cli(["show", str(self.deck)])
+        self.assertEqual(code, 1)
+        self.assertIn("NO PROFILE", err)
+        self.assertIn("deck size: 16", out)
+
+    def test_new_from_deck_then_fresh(self):
+        code, _, _ = self.run_cli(["new", "--deck", str(self.deck)])
+        self.assertEqual(code, 0)
+        p = self.dir / "test.profile.md"
+        header, body = prof.read_profile(p)
+        self.assertEqual(header["commanders"], "Saruman, the White Hand")
+        self.assertEqual(header["bracket"], "3")
+        self.assertEqual(header["colors"], "ubr")
+        self.assertIn("## Plan", body)
+        self.assertTrue((self.dir / "test.profile.lock").exists())
+        code, out, _ = self.run_cli(["show", str(self.deck)])
+        self.assertEqual(code, 0)
+        self.assertIn("status: fresh", out)
+
+    def test_new_refuses_to_overwrite(self):
+        self.run_cli(["new", "--deck", str(self.deck)])
+        code, _, err = self.run_cli(["new", "--deck", str(self.deck)])
+        self.assertEqual(code, 1)
+        self.assertIn("exists", err)
+
+    def test_stale_after_big_change_then_stamp_fixes(self):
+        self.run_cli(["new", "--deck", str(self.deck)])
+        self.deck.write_text(DECK.replace("8 Island", "1 Island"))
+        code, out, err = self.run_cli(["show", str(self.deck)])
+        self.assertEqual(code, 1)
+        self.assertIn("PROFILE STALE", err)
+        p = self.dir / "test.profile.md"
+        p.write_text(p.read_text().replace("## Plan\n", "## Plan\nReviewed plan.\n"))
+        code, _, _ = self.run_cli(["stamp", str(p)])
+        self.assertEqual(code, 0)
+        self.assertIn("Reviewed plan.", p.read_text())
+        code, out, _ = self.run_cli(["show", str(self.deck)])
+        self.assertEqual(code, 0)
+        self.assertIn("status: fresh", out)
+
+    def test_drift_lists_cards_exit_0(self):
+        self.run_cli(["new", "--deck", str(self.deck)])
+        self.deck.write_text(DECK.replace("1 Ponder", "1 Opt"))
+        code, out, err = self.run_cli(["show", str(self.deck)])
+        self.assertEqual(code, 0)
+        self.assertIn("drift", out)
+        self.assertIn("+ opt", out)
+        self.assertIn("- ponder", out)
+
+    def test_new_strategy_only(self):
+        out_path = self.dir / "aristo.profile.md"
+        code, _, _ = self.run_cli(["new", "--strategy", "aristocrats, drain on death",
+                                   "--colors", "wb", "--bracket", "3", "-o", str(out_path)])
+        self.assertEqual(code, 0)
+        header, body = prof.read_profile(out_path)
+        self.assertNotIn("deck-hash", header)
+        self.assertIn("aristocrats, drain on death", body)
+        code, out, _ = self.run_cli(["show", str(out_path)])
+        self.assertEqual(code, 0)
+        self.assertIn("status: fresh", out)
+
+    def test_new_commander_requires_bracket(self):
+        with self.assertRaises(SystemExit):
+            self.run_cli(["new", "--commander", "Edgar Markov", "-o",
+                          str(self.dir / "e.profile.md")])
+
+    def test_deck_without_commander_warns(self):
+        self.deck.write_text(DECK.replace("// Commander\n1 Saruman, the White Hand (LTC) 8 #cmd\n",
+                                          ""))
+        code, out, err = self.run_cli(["show", str(self.deck)])
+        self.assertIn("no commander", err)
+
+
 if __name__ == "__main__":
     unittest.main()

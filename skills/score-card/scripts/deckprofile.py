@@ -19,6 +19,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "moxfield-deck" / "scripts"))
 import moxfield  # noqa: E402
+sys.path.insert(0, str(ROOT / "scryfall-cards" / "scripts"))
+sys.path.insert(0, str(ROOT / "card-finder" / "scripts"))
+import finder  # noqa: E402
+import scryfall  # noqa: E402
 
 DRIFT_MAX = 5
 HEADER_KEYS = ("profile-of", "commanders", "colors", "bracket", "deck-hash",
@@ -107,3 +111,251 @@ def freshness(header, lock_lines, boards, meta):
     if reasons:
         return "stale", "; ".join(reasons), sorted(set(added)), sorted(set(removed))
     return "drift", f"{changed} cards changed", sorted(set(added)), sorted(set(removed))
+
+
+COLORS = ("W", "U", "B", "R", "G", "C")
+STRATEGY_SKELETON = """
+## Plan
+<how the deck wins, in two or three sentences>
+
+## Rewards
+<what the deck wants more of: card types, events, resources>
+
+## Lacks
+<roles the deck is short on; check the role counts above>
+
+## Avoid
+<house rules and things that don't fit, e.g. infinite combos>
+"""
+
+
+def load_cards(boards):
+    """(cards keyed by folded name, roles by card name, missing names)."""
+    names = [c.name for b in moxfield.DECK_BOARDS for c in boards.get(b) or []]
+    report = scryfall.Report()
+    found, wanted = scryfall.resolve_names(names, report)
+    report.emit()
+    cards = {moxfield.fold(wanted[k]): found[k] for k in wanted if k in found}
+    idx = finder.TagIndex(finder.load_tags())
+    gone = finder.missing_roles(idx)
+    if gone:
+        print(f"warning: role tags missing: {', '.join(gone)}", file=sys.stderr)
+    roles = finder.card_roles(idx, list(cards.values()))
+    return cards, roles, list(report.missing)
+
+
+def facts(boards, cards, roles):
+    curve, sources, role_counts = Counter(), Counter(), Counter()
+    size = mv_total = nonlands = 0
+    gcs = []
+    for b in moxfield.DECK_BOARDS:
+        for c in boards.get(b) or []:
+            size += c.qty
+            card = cards.get(moxfield.fold(c.name))
+            if not card:
+                continue
+            for color in card.get("produced_mana") or []:
+                if color in COLORS:
+                    sources[color] += c.qty
+            if card.get("game_changer"):
+                gcs.append(card["name"])
+            for r in roles.get(card["name"], []):
+                role_counts[r] += c.qty
+            # Front face decides: a spell // land MDFC counts as a spell.
+            front_type = (card.get("type_line") or "").split("//")[0].split("—")[0]
+            if "Land" in front_type:
+                continue
+            mv = int(card.get("cmc") or 0)
+            curve[min(mv, 7)] += c.qty
+            mv_total += mv * c.qty
+            nonlands += c.qty
+    colors = set()
+    for c in boards.get("commanders") or []:
+        card = cards.get(moxfield.fold(c.name))
+        colors |= set((card or {}).get("color_identity") or [])
+    # Command Tower and Arcane Signet list all five colors in produced_mana;
+    # only the commander's identity (plus colorless) can actually be made.
+    if colors:
+        sources = Counter({k: v for k, v in sources.items() if k in colors or k == "C"})
+    return {
+        "commanders": commander_names(boards),
+        "colors": "".join(x.lower() for x in "WUBRG" if x in colors),
+        "deck_size": size,
+        "curve": dict(sorted(curve.items())),
+        "avg_mv": mv_total / nonlands if nonlands else 0.0,
+        "sources": {k: sources[k] for k in COLORS if sources[k]},
+        "role_counts": {r: role_counts[r] for r in finder.ROLES},
+        "game_changers": sorted(gcs),
+    }
+
+
+def format_facts(f):
+    curve = "  ".join(f"{'7+' if k == 7 else k}:{v}" for k, v in f["curve"].items())
+    out = [
+        f"commanders: {' + '.join(f['commanders']) or '(none)'}",
+        f"colors: {f['colors'] or '(unknown)'}",
+        f"deck size: {f['deck_size']}",
+        f"curve (non-land): {curve}   avg mv {f['avg_mv']:.2f}",
+        "sources: " + "  ".join(f"{k}:{v}" for k, v in f["sources"].items()),
+        "roles: " + "  ".join(f"{r}:{n}" for r, n in f["role_counts"].items()),
+        f"game changers ({len(f['game_changers'])}): {', '.join(f['game_changers']) or '-'}",
+    ]
+    return "\n".join(out)
+
+
+def _read_deck(path):
+    return moxfield.parse_deck(Path(path).read_text())
+
+
+def _lock_lines(profile):
+    lp = lock_path(profile)
+    return lp.read_text().splitlines() if lp.exists() else None
+
+
+def _deck_header(deck_path, boards, meta, f):
+    return {
+        "profile-of": str(deck_path),
+        "commanders": " + ".join(commander_names(boards)),
+        "colors": f["colors"],
+        "bracket": str(meta.get("bracket", "")).strip() or "?",
+        "deck-hash": fingerprint(deck_lines(boards)),
+        "cards-at-write": str(f["deck_size"]),
+        "reviewed": time.strftime("%Y-%m-%d"),
+    }
+
+
+def cmd_show(args):
+    target = Path(args.path)
+    if target.name.endswith(".profile.md"):
+        profile = target
+        header, body = read_profile(profile)
+        deck_path = header.get("profile-of")
+    else:
+        deck_path, profile = target, profile_path(target)
+        header, body = read_profile(profile) if profile.exists() else ({}, None)
+    code = 0
+    boards = meta = None
+    if deck_path:
+        boards, meta = _read_deck(deck_path)
+        if not boards.get("commanders"):
+            print("warning: deck has no commander; profile uses colors and strategy only",
+                  file=sys.stderr)
+        cards, roles, missing = load_cards(boards)
+        f = facts(boards, cards, roles)
+        print(format_facts(f) if not args.json else json.dumps(f, indent=2))
+        code = 1 if missing else 0
+    if body is None:
+        print(f"NO PROFILE — run: deckprofile.py new --deck {deck_path}", file=sys.stderr)
+        return 1
+    status, reason, added, removed = freshness(header, _lock_lines(profile), boards, meta or {})
+    print(f"\nprofile: {profile}")
+    for k in HEADER_KEYS:
+        if k in header:
+            print(f"  {k}: {header[k]}")
+    print(f"status: {status}" + (f" ({reason})" if reason else ""))
+    for n in added:
+        print(f"  + {n}")
+    for n in removed:
+        print(f"  - {n}")
+    print(body.rstrip())
+    if status == "stale":
+        print(f"PROFILE STALE: {reason}. Review the strategy against the current deck, "
+              f"then run: deckprofile.py stamp {profile}", file=sys.stderr)
+        return 1
+    if status == "drift":
+        print(f"warning: profile drift ({reason}); check whether the changed cards shift "
+              "the plan", file=sys.stderr)
+    return code
+
+
+def cmd_new(args):
+    if args.deck:
+        out = Path(args.output) if args.output else profile_path(args.deck)
+    else:
+        if not args.output:
+            print("new without --deck needs -o PATH.profile.md", file=sys.stderr)
+            return 2
+        out = Path(args.output)
+    if out.exists():
+        print(f"{out} exists; edit it, or run stamp after reviewing", file=sys.stderr)
+        return 1
+    if args.deck:
+        boards, meta = _read_deck(args.deck)
+        cards, roles, missing = load_cards(boards)
+        f = facts(boards, cards, roles)
+        header = _deck_header(args.deck, boards, meta, f)
+        if args.bracket:
+            header["bracket"] = str(args.bracket)
+        lock_path(out).write_text("\n".join(deck_lines(boards)) + "\n")
+        intro = ""
+    else:
+        header = {"bracket": str(args.bracket), "reviewed": time.strftime("%Y-%m-%d")}
+        if args.commander:
+            header["commanders"] = " + ".join(args.commander)
+        if args.colors:
+            header["colors"] = args.colors.lower()
+        intro = f"\nStrategy: {args.strategy}\n" if args.strategy else ""
+        missing = []
+    out.write_text("".join(f"// {k}: {v}\n" for k, v in header.items())
+                   + intro + STRATEGY_SKELETON)
+    print(f"wrote {out} — fill in the strategy sections, then run: deckprofile.py stamp {out}")
+    return 1 if missing else 0
+
+
+def cmd_stamp(args):
+    profile = Path(args.profile)
+    header, _ = read_profile(profile)
+    deck_path = header.get("profile-of")
+    header["reviewed"] = time.strftime("%Y-%m-%d")
+    if deck_path:
+        boards, meta = _read_deck(deck_path)
+        lines = deck_lines(boards)
+        header["deck-hash"] = fingerprint(lines)
+        header["commanders"] = " + ".join(commander_names(boards))
+        header["cards-at-write"] = str(sum(int(ln.split(" ", 1)[0]) for ln in lines))
+        if str(meta.get("bracket", "")).strip():
+            header["bracket"] = str(meta["bracket"]).strip()
+        lock_path(profile).write_text("\n".join(lines) + "\n")
+    write_header(profile, header)
+    print(f"stamped {profile}")
+    return 0
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="Deck profile for score-card.")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("show", help="facts + strategy + freshness")
+    p.add_argument("path", help="deck file or .profile.md")
+    p.add_argument("--json", action="store_true", help="facts as JSON")
+    p.set_defaults(fn=cmd_show)
+
+    p = sub.add_parser("new", help="create a profile with an empty strategy")
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--deck", help="deck file in decks/")
+    src.add_argument("--commander", action="append", help="commander name (twice for a pair)")
+    src.add_argument("--strategy", help="strategy in words, no deck yet")
+    p.add_argument("--colors", help="color letters, e.g. wb (strategy profiles)")
+    p.add_argument("--bracket", type=int, choices=range(1, 6))
+    p.add_argument("-o", "--output", help="profile path (default: next to --deck)")
+    p.set_defaults(fn=cmd_new)
+
+    p = sub.add_parser("stamp", help="mark the strategy as reviewed for the current deck")
+    p.add_argument("profile")
+    p.set_defaults(fn=cmd_stamp)
+
+    args = ap.parse_args(argv)
+    if args.cmd == "new" and not args.deck and args.bracket is None:
+        ap.error("new: --bracket is required without --deck")
+    try:
+        return args.fn(args)
+    except FileNotFoundError as exc:
+        print(f"file not found: {exc.filename}", file=sys.stderr)
+        return 1
+    except (OSError, RuntimeError) as exc:
+        print(f"NETWORK FAILURE: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
