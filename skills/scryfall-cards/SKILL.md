@@ -1,6 +1,6 @@
 ---
 name: scryfall-cards
-description: Use when you need a Magic card's oracle text, cost, type, legality or rulings, when evaluating or building a deck and you need to read the cards, when someone asks "what does card X do", "which cards exist that...", "what sets was it printed in", or when the question involves Scryfall search syntax (c: t: o: mv: f:). Applies even when the request doesn't mention Scryfall or gives the card name in Portuguese.
+description: Use when you need a Magic card's oracle text, cost, type, legality or rulings, when evaluating or building a deck and you need to read the cards, when someone asks "what does card X do", "what sets was it printed in", or when the question involves Scryfall search syntax (c: t: o: mv: f:). Applies even when the request doesn't mention Scryfall or gives the card name in Portuguese.
 ---
 
 # Magic cards through Scryfall
