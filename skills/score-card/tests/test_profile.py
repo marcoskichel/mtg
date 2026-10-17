@@ -324,6 +324,25 @@ class CliTest(unittest.TestCase):
         self.run_cli(["stamp", str(p)])
         self.assertEqual(prof.read_profile(p)[0]["colors"], "ubr")
 
+    def test_show_json_is_one_object(self):
+        self.run_cli(["new", "--deck", str(self.deck)])
+        self.deck.write_text(DECK.replace("1 Ponder", "1 Opt"))
+        code, out, _ = self.run_cli(["show", str(self.deck), "--json"])
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual(data["facts"]["deck_size"], 16)
+        self.assertEqual(data["status"], "drift")
+        self.assertEqual(data["added"], ["opt"])
+        self.assertEqual(data["profile"]["header"]["bracket"], "3")
+        self.assertIn("## Plan", data["profile"]["body"])
+
+    def test_show_json_without_profile(self):
+        code, out, _ = self.run_cli(["show", str(self.deck), "--json"])
+        self.assertEqual(code, 1)
+        data = json.loads(out)
+        self.assertIsNone(data["profile"])
+        self.assertEqual(data["status"], "no-profile")
+
     def test_new_strategy_only(self):
         out_path = self.dir / "aristo.profile.md"
         code, _, _ = self.run_cli(["new", "--strategy", "aristocrats, drain on death",

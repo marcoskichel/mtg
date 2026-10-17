@@ -246,7 +246,7 @@ def cmd_show(args):
         deck_path, profile = target, profile_path(target)
         header, body = read_profile(profile) if profile.exists() else ({}, None)
     code = 0
-    boards = meta = None
+    boards = meta = f = None
     if deck_path:
         boards, meta = _read_deck(deck_path)
         if not boards.get("commanders"):
@@ -254,22 +254,33 @@ def cmd_show(args):
                   file=sys.stderr)
         cards, roles, missing = load_cards(boards)
         f = facts(boards, cards, roles)
-        print(format_facts(f) if not args.json else json.dumps(f, indent=2))
+        if not args.json:
+            print(format_facts(f))
         code = 1 if missing else 0
     if body is None:
+        if args.json:
+            print(json.dumps({"facts": f, "profile": None, "status": "no-profile",
+                              "reason": "", "added": [], "removed": []}, indent=2,
+                             ensure_ascii=False))
         print(f"NO PROFILE — run: deckprofile.py new --deck {deck_path}", file=sys.stderr)
         return 1
     status, reason, added, removed = freshness(header, _lock_lines(profile), boards, meta or {})
-    print(f"\nprofile: {profile}")
-    for k in HEADER_KEYS:
-        if k in header:
-            print(f"  {k}: {header[k]}")
-    print(f"status: {status}" + (f" ({reason})" if reason else ""))
-    for n in added:
-        print(f"  + {n}")
-    for n in removed:
-        print(f"  - {n}")
-    print(body.rstrip())
+    if args.json:
+        print(json.dumps({"facts": f,
+                          "profile": {"path": str(profile), "header": header, "body": body},
+                          "status": status, "reason": reason, "added": added,
+                          "removed": removed}, indent=2, ensure_ascii=False))
+    else:
+        print(f"\nprofile: {profile}")
+        for k in HEADER_KEYS:
+            if k in header:
+                print(f"  {k}: {header[k]}")
+        print(f"status: {status}" + (f" ({reason})" if reason else ""))
+        for n in added:
+            print(f"  + {n}")
+        for n in removed:
+            print(f"  - {n}")
+        print(body.rstrip())
     if status == "stale":
         print(f"PROFILE STALE: {reason}. Review the strategy against the current deck, "
               f"then run: deckprofile.py stamp {profile}", file=sys.stderr)
@@ -353,7 +364,8 @@ def main(argv=None):
 
     p = sub.add_parser("show", help="facts + strategy + freshness")
     p.add_argument("path", help="deck file or .profile.md")
-    p.add_argument("--json", action="store_true", help="facts as JSON")
+    p.add_argument("--json", action="store_true",
+                   help="one JSON object: facts, profile, status, added, removed")
     p.set_defaults(fn=cmd_show)
 
     p = sub.add_parser("new", help="create a profile with an empty strategy")
