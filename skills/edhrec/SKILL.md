@@ -47,7 +47,7 @@ of those, each with `name`); `data` is `null` when EDHREC has no page. `--ttl 0`
 ## Names
 
 Names go through Scryfall first, then become EDHREC slugs: lowercase, no
-accents, no apostrophes or commas, `Æ` → `ae`. Double-faced and adventure cards
+accents, no apostrophes, commas or periods (`V.A.T.S.` → `vats`), `Æ` → `ae`. Double-faced and adventure cards
 use the front face; split and aftermath cards use both halves (`fire-ice`).
 Pairs join both slugs alphabetically.
 

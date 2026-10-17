@@ -30,6 +30,8 @@ CACHE_DIR = Path.home() / ".cache" / "mtg-skills" / "edhrec"
 DELAY = [0.5]
 RETRIES = 4
 NOT_FOUND_MARK = b"<Code>AccessDenied</Code>"
+# One Retry-After header must not stall a run for an hour, or crash sleep() if negative.
+MAX_RETRY_AFTER = 60.0
 # Layouts whose EDHREC page names both halves; every other "A // B" uses A.
 BOTH_HALVES = {"split", "aftermath"}
 
@@ -48,7 +50,8 @@ def slug(name, layout=None):
     name = name.replace("Æ", "Ae").replace("æ", "ae")
     name = unicodedata.normalize("NFD", name)
     name = "".join(c for c in name if unicodedata.category(c) != "Mn")
-    name = re.sub(r"['’,]", "", name.lower())
+    # EDHREC deletes these rather than hyphenating: V.A.T.S. -> vats.
+    name = re.sub(r"['’,.꞉]", "", name.lower())
     return re.sub(r"[^a-z0-9]+", "-", name).strip("-")
 
 
@@ -83,11 +86,8 @@ def _write_cache(path, page):
     return entry
 
 
-def fetch(path, ttl_hours=24):
-    """(page, fetched_epoch). page None = EDHREC has no such page. Raises Blocked."""
-    cached = _read_cache(path, ttl_hours)
-    if cached is not None:
-        return cached["page"], cached["fetched"]
+def _download(path):
+    """Page dict, or None when EDHREC has no such page. Raises Blocked."""
     req = urllib.request.Request(BASE + path.strip("/") + ".json",
                                  headers={"User-Agent": UA, "Accept": "application/json"})
     wait = 2.0
@@ -98,14 +98,11 @@ def fetch(path, ttl_hours=24):
         _last_call[0] = time.monotonic()
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
-                page = json.loads(resp.read().decode("utf-8", "replace"))
-            entry = _write_cache(path, page)
-            return entry["page"], entry["fetched"]
+                return json.loads(resp.read().decode("utf-8", "replace"))
         except urllib.error.HTTPError as exc:
             body = exc.read() if exc.fp else b""
             if exc.code == 403 and NOT_FOUND_MARK in body:
-                entry = _write_cache(path, None)
-                return None, entry["fetched"]
+                return None
             if exc.code not in (403, 429):
                 raise
             if attempt == RETRIES:
@@ -115,10 +112,28 @@ def fetch(path, ttl_hours=24):
                 pause = float(ra) if ra else wait
             except ValueError:
                 pause = wait
+            pause = min(max(pause, 0.0), MAX_RETRY_AFTER)
             print(f"warning: HTTP {exc.code} from EDHREC; waiting {pause:.0f}s", file=sys.stderr)
             time.sleep(pause)
             wait *= 2
     raise RuntimeError("unreachable")
+
+
+def fetch(path, ttl_hours=24):
+    """(page, fetched_epoch). page None = EDHREC has no such page. Raises Blocked.
+
+    Some pages are a stub {"redirect": "/commanders/<other-slug>"} (pairs whose
+    canonical order isn't alphabetical); follow it once and cache the target
+    under the requested path.
+    """
+    cached = _read_cache(path, ttl_hours)
+    if cached is not None:
+        return cached["page"], cached["fetched"]
+    page = _download(path)
+    if isinstance(page, dict) and isinstance(page.get("redirect"), str) and len(page) == 1:
+        page = _download(page["redirect"])
+    entry = _write_cache(path, page)
+    return entry["page"], entry["fetched"]
 
 
 # Color identity letters -> the guild/shard/wedge name EDHREC uses in tag paths.

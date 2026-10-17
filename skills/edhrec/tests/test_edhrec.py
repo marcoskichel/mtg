@@ -64,6 +64,13 @@ class SlugTest(unittest.TestCase):
         self.assertEqual(edhrec.slug("Fire // Ice", "split"), "fire-ice")
         self.assertEqual(edhrec.slug("Commit // Memory", "aftermath"), "commit-memory")
 
+    def test_dots_and_modifier_colon_are_deleted(self):
+        self.assertEqual(edhrec.slug("V.A.T.S."), "vats")
+        self.assertEqual(edhrec.slug("Nick Fury, Agent of S.H.I.E.L.D."),
+                         "nick-fury-agent-of-shield")
+        self.assertEqual(edhrec.slug("Ratonhnhaké꞉ton"), "ratonhnhaketon")
+        self.assertEqual(edhrec.slug("Dr. Madison Li"), "dr-madison-li")
+
     def test_pair_is_alphabetical(self):
         self.assertEqual(edhrec.pair_slug("Tymna the Weaver", "Kraum, Ludevic's Opus"),
                          "kraum-ludevics-opus-tymna-the-weaver")
@@ -111,6 +118,24 @@ class FetchTest(unittest.TestCase):
                 edhrec.fetch("cards/sol-ring")
         self.assertEqual(uo.call_count, 5)
         self.assertFalse(any(Path(self.tmp.name).rglob("*.json")))
+
+    def test_redirect_is_followed_once_and_cached_under_requested_path(self):
+        seq = [FakeResp({"redirect": "/commanders/b-a"}), FakeResp({"real": True})]
+        with mock.patch.object(edhrec.urllib.request, "urlopen", side_effect=seq) as uo:
+            page, _ = edhrec.fetch("commanders/a-b")
+            again, _ = edhrec.fetch("commanders/a-b")
+        self.assertEqual(page, {"real": True})
+        self.assertEqual(again, {"real": True})
+        self.assertEqual(uo.call_count, 2)
+        self.assertTrue(uo.call_args_list[1][0][0].full_url.endswith("/pages/commanders/b-a.json"))
+
+    def test_retry_after_is_clamped(self):
+        seq = [http_error(429, b"", {"Retry-After": "-1"}),
+               http_error(429, b"", {"Retry-After": "3600"}), FakeResp({"ok": True})]
+        with mock.patch.object(edhrec.urllib.request, "urlopen", side_effect=seq):
+            edhrec.fetch("cards/sol-ring")
+        edhrec.time.sleep.assert_any_call(0.0)
+        edhrec.time.sleep.assert_any_call(60.0)
 
     def test_429_retries_then_succeeds(self):
         seq = [http_error(429, b"", {"Retry-After": "10"}), FakeResp({"ok": True})]
