@@ -93,7 +93,7 @@ def freshness(header, lock_lines, boards, meta):
     if want_cmd and [moxfield.fold(x) for x in want_cmd] != [moxfield.fold(x) for x in have_cmd]:
         reasons.append(f"commanders changed: {' + '.join(want_cmd)} -> "
                        f"{' + '.join(have_cmd) or 'none'}")
-    if header.get("bracket") and str(meta.get("bracket", "")).strip() \
+    if header.get("bracket") not in (None, "", "?") and str(meta.get("bracket", "")).strip() \
             and header["bracket"] != str(meta["bracket"]).strip():
         reasons.append(f"bracket changed: {header['bracket']} -> {meta['bracket']}")
     lines = deck_lines(boards)
@@ -286,6 +286,12 @@ def cmd_new(args):
         return 1
     if args.deck:
         boards, meta = _read_deck(args.deck)
+        declared = str(meta.get("bracket", "")).strip()
+        if args.bracket and declared and declared != str(args.bracket):
+            print(f"{args.deck} says Bracket: {declared}; --bracket {args.bracket} would make "
+                  "the profile stale at once. Change the deck file's Bracket line instead.",
+                  file=sys.stderr)
+            return 2
         cards, roles, missing = load_cards(boards)
         f = facts(boards, cards, roles)
         header = _deck_header(args.deck, boards, meta, f)

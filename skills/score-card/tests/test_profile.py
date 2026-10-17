@@ -142,6 +142,10 @@ class FreshnessTest(unittest.TestCase):
         self.assertEqual(status, "stale")
         self.assertIn("lock", reason)
 
+    def test_unknown_bracket_placeholder_is_not_a_change(self):
+        header = dict(self.header, bracket="?")
+        self.assertEqual(self.check(DECK, header=header)[0], "fresh")
+
     def test_strategy_only_profile_is_fresh(self):
         self.assertEqual(prof.freshness({"bracket": "3"}, None, None, {})[0], "fresh")
 
@@ -274,6 +278,23 @@ class CliTest(unittest.TestCase):
         self.assertIn("drift", out)
         self.assertIn("+ opt", out)
         self.assertIn("- ponder", out)
+
+    def test_new_rejects_bracket_that_contradicts_deck(self):
+        code, _, err = self.run_cli(["new", "--deck", str(self.deck), "--bracket", "4"])
+        self.assertEqual(code, 2)
+        self.assertIn("Bracket: 3", err)
+        self.assertFalse((self.dir / "test.profile.md").exists())
+
+    def test_new_bracket_used_when_deck_has_none(self):
+        self.deck.write_text(DECK.replace("// Bracket: 3\n", ""))
+        code, _, _ = self.run_cli(["new", "--deck", str(self.deck), "--bracket", "4"])
+        self.assertEqual(code, 0)
+        code, out, _ = self.run_cli(["show", str(self.deck)])
+        self.assertEqual(code, 0)
+        self.assertIn("bracket: 4", out)
+        self.run_cli(["stamp", str(self.dir / "test.profile.md")])
+        header, _ = prof.read_profile(self.dir / "test.profile.md")
+        self.assertEqual(header["bracket"], "4")
 
     def test_new_strategy_only(self):
         out_path = self.dir / "aristo.profile.md"
