@@ -33,7 +33,7 @@ TUI (deferred until a designer defines look and feel) renders output of both
 | Deck context | A **profile**: measured facts (recomputed every run, never stored) + a strategy section the agent writes (stored, fingerprinted). |
 | Freshness | Strategy section carries a hash of the deck list. Fresh → score; drift ≤5 cards → score with warning; >5 cards or commander/bracket changed → `STALE`, stop until reviewed. |
 | Data sources | Scryfall (text, legality, game changer), Scryfall Oracle Tags bulk file (roles), EDHREC (play rate, salt, homes, themes, bracket split). |
-| Code placement | Each new fact goes to the skill that owns its source. One new data skill (`edhrec`), one new command in `card-finder` (`roles`), one small script in `score-card` (`profile.py`). |
+| Code placement | Each new fact goes to the skill that owns its source. One new data skill (`edhrec`), one new command in `card-finder` (`roles`), one small script in `score-card` (`deckprofile.py`). |
 
 ## Components
 
@@ -135,17 +135,17 @@ oracle text decides.
 skills/score-card/
   SKILL.md               how to score: flow, modes, pools, freshness, traps
   references/rubric.md   factors, bracket weights, verdicts, flags, worked examples
-  scripts/profile.py     deck profile: facts, fingerprint, staleness
+  scripts/deckprofile.py     deck profile: facts, fingerprint, staleness
   tests/test_profile.py
 ```
 
-#### `profile.py`
+#### `deckprofile.py`
 
 Imports `moxfield.parse_deck` (deck files), `scryfall` (card data) and
 `finder` (roles) through `sys.path`, as `card-finder` does today.
 
 ```bash
-P=skills/score-card/scripts/profile.py
+P=skills/score-card/scripts/deckprofile.py
 python3 $P show decks/markov-gang.txt            # or a .profile.md path
 python3 $P new --deck decks/markov-gang.txt
 python3 $P new --commander "Edgar Markov" --bracket 3 -o decks/edgar.profile.md
@@ -163,14 +163,14 @@ python3 $P stamp decks/markov-gang.profile.md
 3. **Freshness**: `fresh` / `drift (+X −Y): <names>` / `STALE (<reason>)`.
 
 `STALE` → exit 1. Missing profile file → print facts, then
-`NO PROFILE — run: profile.py new --deck <path>` and exit 1.
+`NO PROFILE — run: deckprofile.py new --deck <path>` and exit 1.
 
 `new` writes the header and an empty strategy skeleton for the agent to fill.
 `stamp` recomputes the hash against the current deck and rewrites **only the
 header**; run it after reviewing or rewriting the strategy.
 
 Moxfield link as context: `moxfield.py pull <url> -o decks/<name>.txt` first,
-then use the file. `profile.py` does not fetch Moxfield itself.
+then use the file. `deckprofile.py` does not fetch Moxfield itself.
 
 #### Profile file format
 
@@ -268,7 +268,7 @@ Blood Artist — in: Markov Gang (bracket 3)
 
 **Single card**
 
-1. In-deck: `profile.py show <deck>`. `STALE` or `NO PROFILE` → read the deck,
+1. In-deck: `deckprofile.py show <deck>`. `STALE` or `NO PROFILE` → read the deck,
    write or review the strategy, `stamp`, run again.
 2. `scryfall.py card <name>` — oracle text, legality.
 3. `finder.py roles <name>`.
@@ -316,7 +316,7 @@ answer is incomplete.
   deck (curve, sources, role counts).
 
 **Live smoke run** before finishing: each new subcommand once;
-`profile.py show decks/saruman.txt`; one full in-deck and one standalone score;
+`deckprofile.py show decks/saruman.txt`; one full in-deck and one standalone score;
 a 30-card pool.
 
 **Rubric acceptance** (by hand, recorded in the PR):
