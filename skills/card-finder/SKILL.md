@@ -1,6 +1,6 @@
 ---
 name: card-finder
-description: Use when someone wants Magic cards that do something — "find me ramp in Golgari", "board wipes that spare my creatures", "cheap card draw for my Edgar deck", "what tutors are there for artifacts", "options for X effect", "replacements for this card" — anything that starts from a function or trait instead of a card name. Covers Scryfall oracle tags (otag:draw, otag:ramp, otag:removal, otag:wipe) and checks every result against its real oracle text.
+description: Use when someone wants Magic cards that do something — "find me ramp in Golgari", "board wipes that spare my creatures", "cheap card draw for my Edgar deck", "what tutors are there for artifacts", "options for X effect", "replacements for this card", "which commanders are W/U" — anything that starts from a function or trait, colors or format filter instead of a card name. Covers Scryfall oracle tags (otag:draw, otag:ramp, otag:removal, otag:wipe) and checks every result against its real oracle text.
 ---
 
 # Finding cards by function
@@ -25,15 +25,19 @@ python3 $F find 'otag:sweeper-one-sided id<=wb f:commander mv<=5'
    The constraints come from the deck: color identity (`id<=`), format
    (`f:commander`), mana value, type, budget (`usd<=`). For a deck in
    `decks/`, read its commander and identity from the file before searching.
-   Done when you can write both down in one line each.
+   Write them as Scryfall keywords from
+   `skills/scryfall-cards/references/search-syntax.md`. It covers commanders
+   and partners, land cycles, Game Changers, price and release date, plus the
+   traps: `id=wu` is "exactly W/U" but `id<=wu` and `commander:wu` are "fits
+   in W/U", and `usd<2` passes if any printing is under $2. Done when you can
+   write both down in one line each.
 
 2. **Choose the tag.** Run `tags <words>` for the concept, then `tag <slug>` on
    the best hit to see its children. Pick the narrowest tag that still covers
    the whole trait: "exile-based creature removal" is `otag:removal-exile`
    together with `otag:removal-creature`, not plain `otag:removal`. A parent tag
    matches every card under its children. When no tag fits, search the text
-   (`o:"..."`, `o:/regex/`), with the syntax in
-   `skills/scryfall-cards/references/search-syntax.md`. Done when every part of
+   (`o:"..."`, `o:/regex/`). Done when every part of
    the trait maps to a tag or to a text term.
 
 3. **Search.** `find "<query>"` checks each tag against the tag list before it
