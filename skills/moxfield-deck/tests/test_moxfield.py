@@ -45,7 +45,7 @@ class ParseLine(unittest.TestCase):
 
 class ParseDeck(unittest.TestCase):
     TEXT = """// Moxfield: https://moxfield.com/decks/abc
-// Nome: Teste
+// Name: Test
 
 // Commander
 1 Olivia, Opulent Outlaw #cmd
@@ -60,25 +60,41 @@ maybe:
 
     def test_sections_and_meta(self):
         boards, meta = mx.parse_deck(self.TEXT)
-        self.assertEqual(meta["nome"], "Teste")
+        self.assertEqual(meta["name"], "Test")
         self.assertEqual(meta["moxfield"], "https://moxfield.com/decks/abc")
         self.assertEqual([c.name for c in boards["commanders"]], ["Olivia, Opulent Outlaw"])
         self.assertEqual([c.name for c in boards["mainboard"]], ["Sol Ring"])
         self.assertEqual([c.name for c in boards["sideboard"]], ["Swords to Plowshares"])
         self.assertEqual([c.name for c in boards["maybeboard"]], ["Edgar Markov"])
-        self.assertNotIn("_aviso", meta)
+        self.assertNotIn("_warning", meta)
 
     def test_no_header_warns(self):
         boards, meta = mx.parse_deck("1 Sol Ring\n1 Swamp\n")
-        self.assertIn("_aviso", meta)
+        self.assertIn("_warning", meta)
         self.assertEqual(len(boards["mainboard"]), 2)
+
+    def test_portuguese_aliases(self):
+        """Older deck files use Portuguese metadata keys and section headers."""
+        text = ("// Nome: Velho\n// Formato: commander\n// Visibilidade: public\n\n"
+                "// Comandante\n1 Olivia, Opulent Outlaw\n\n// Mainboard\n1 Sol Ring\n"
+                "// Reserva\n1 Swords to Plowshares\n// Considerando\n1 Edgar Markov\n")
+        boards, meta = mx.parse_deck(text)
+        self.assertEqual((meta["name"], meta["format"], meta["visibility"]),
+                         ("Velho", "commander", "public"))
+        self.assertNotIn("nome", meta)
+        self.assertEqual([c.name for c in boards["commanders"]], ["Olivia, Opulent Outlaw"])
+        self.assertEqual([c.name for c in boards["sideboard"]], ["Swords to Plowshares"])
+        self.assertEqual([c.name for c in boards["maybeboard"]], ["Edgar Markov"])
+        rendered = mx.render_deck(boards, meta)
+        self.assertIn("// Name: Velho", rendered)
+        self.assertIn("// Format: commander", rendered)
 
     def test_roundtrip(self):
         boards, meta = mx.parse_deck(self.TEXT)
         text = mx.render_deck(boards, meta)
         boards2, meta2 = mx.parse_deck(text)
         self.assertEqual(mx.diff_boards(boards, boards2), [])
-        self.assertEqual(meta2["nome"], "Teste")
+        self.assertEqual(meta2["name"], "Test")
 
 
 class FromMoxfield(unittest.TestCase):
@@ -177,9 +193,9 @@ class Validate(unittest.TestCase):
                            [(1, "Counterspell"), (2, "Sol Ring"), (1, "Mana Crypt"), (94, "Swamp"), (1, "Typo")])
         ok, out = self.run_validate(boards, db)
         self.assertFalse(ok)
-        for frag in ("sem Partner", "fora da identidade de cor BRW: Counterspell",
-                     "repetida (2x) sem permissao: Sol Ring", "banned em commander: Mana Crypt",
-                     "nao encontrado na Scryfall", "deck tem 101 cartas"):
+        for frag in ("without Partner or Background", "outside color identity BRW: Counterspell",
+                     "duplicate (2x) not allowed: Sol Ring", "banned in commander: Mana Crypt",
+                     "not found on Scryfall", "deck has 101 cards"):
             self.assertIn(frag, out)
 
     def test_partner_and_background_ok(self):
@@ -188,20 +204,20 @@ class Validate(unittest.TestCase):
               "Swamp": card("Swamp", "Basic Land — Swamp")}
         boards = self.deck(["A", "B"], [(98, "Swamp")])
         ok, out = self.run_validate(boards, db)
-        self.assertNotIn("sem Partner", out)
+        self.assertNotIn("without Partner", out)
         db = {"C": card("C", "Legendary Creature", "W", text="Choose a Background"),
               "Bg": card("Bg", "Legendary Enchantment — Background", "R"),
               "Plains": card("Plains", "Basic Land — Plains")}
         boards = self.deck(["C", "Bg"], [(98, "Plains")])
         ok, out = self.run_validate(boards, db)
-        self.assertNotIn("sem Partner", out)
+        self.assertNotIn("without Partner", out)
 
     def test_offline(self):
         boards = self.deck([], [(1, "Sol Ring")])
         out = io.StringIO()
         ok = mx.validate(boards, "commander", None, out=out)
         self.assertFalse(ok)
-        self.assertIn("sem comandante", out.getvalue())
+        self.assertIn("no commander", out.getvalue())
 
 
 class ScryfallResolve(unittest.TestCase):
