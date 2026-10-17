@@ -189,6 +189,31 @@ def parse_deck(text):
     return boards, meta
 
 
+def read_card_list(path, boards=DECK_BOARDS):
+    """[(qty, name)] from a deck file (Bulk Edit syntax, headers, tags) or a loose list.
+
+    Lines without a quantity count as 1; repeated names merge, keeping the first
+    spelling. Default boards are the ones that count toward the deck.
+    """
+    text = sys.stdin.read() if str(path) == "-" else _read(path)
+    fixed = []
+    for ln in text.splitlines():
+        s = ln.strip()
+        if s and not s.startswith("//") and not LINE_RE.match(s) \
+                and s.rstrip(":").lower() not in SECTION_HEADERS:
+            s = "1 " + s
+        fixed.append(s)
+    parsed, _ = parse_deck("\n".join(fixed))
+    out, idx = [], {}
+    for b in boards:
+        for c in parsed[b]:
+            if c.key in idx:
+                out[idx[c.key]][0] += c.qty
+            else:
+                idx[c.key] = len(out)
+                out.append([c.qty, c.name])
+    return [tuple(x) for x in out]
+
 def merge(cards):
     out, idx = [], {}
     for c in cards:

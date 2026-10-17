@@ -183,29 +183,6 @@ def commander_stats(page):
     }
 
 
-def deck_names(path):
-    """Names from a deck file (Moxfield syntax, headers, tags) or a loose list.
-
-    Lines without a quantity count as 1. Uses moxfield.parse_deck, never
-    scryfall.parse_input: that one skips `//` headers and keeps `#tags` in names.
-    """
-    text = Path(path).read_text() if path != "-" else sys.stdin.read()
-    fixed = []
-    for ln in text.splitlines():
-        s = ln.strip()
-        if s and not s.startswith("//") and not moxfield.LINE_RE.match(s) \
-                and s.rstrip(":").lower() not in moxfield.SECTION_HEADERS:
-            s = "1 " + s
-        fixed.append(s)
-    boards, _ = moxfield.parse_deck("\n".join(fixed))
-    names = []
-    for b in moxfield.BOARDS:
-        for c in boards[b]:
-            if c.name not in names:
-                names.append(c.name)
-    return names
-
-
 def _fmt_int(n):
     return f"{n:,}" if isinstance(n, int) else "?"
 
@@ -229,7 +206,8 @@ def _report_blocked(blocked):
 
 
 def cmd_card(args):
-    names = deck_names(args.deck) if args.deck else args.names
+    names = ([n for _, n in moxfield.read_card_list(args.deck, moxfield.BOARDS)]
+             if args.deck else args.names)
     cards, missing = _resolve(names)
     rows, blocked = [], []
     for card in cards:

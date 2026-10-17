@@ -76,7 +76,7 @@ cached tag file, with no searches:
 
 ```bash
 python3 $F roles "Blood Artist" "Sol Ring"
-python3 $F roles -d decks/markov-gang.txt        # + counts per role
+python3 $F roles -d decks/markov-gang.txt        # + counts per role (deck boards, by quantity)
 ```
 
 Roles: `ramp, mana-rock, cost-reducer, draw, card-advantage, removal, sweeper,

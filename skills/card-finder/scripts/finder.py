@@ -21,8 +21,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scryfall-cards" / "scripts"))
 import scryfall  # noqa: E402
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "edhrec" / "scripts"))
-import edhrec  # noqa: E402  (deck_names: Moxfield-syntax deck files and loose lists)
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "moxfield-deck" / "scripts"))
+import moxfield  # noqa: E402  (read_card_list: deck files and loose lists)
 
 CACHE_DIR = Path.home() / ".cache" / "mtg-skills"
 TAGS_FILE = CACHE_DIR / "oracle-tags.jsonl.gz"
@@ -359,7 +359,8 @@ def card_roles(idx, cards):
 
 
 def cmd_roles(args):
-    names = edhrec.deck_names(args.deck) if args.deck else args.names
+    listed = moxfield.read_card_list(args.deck) if args.deck else [(1, n) for n in args.names]
+    names = [n for _, n in listed]
     idx = TagIndex(load_tags(args.refresh))
     gone = missing_roles(idx)
     if gone:
@@ -370,7 +371,12 @@ def cmd_roles(args):
     report.emit()
     cards = [found[k] for k in wanted if k in found]
     roles = card_roles(idx, cards)
-    counts = {r: sum(1 for v in roles.values() if r in v) for r in ROLES}
+    qty = {}
+    for n, name in listed:
+        k = scryfall.fold(scryfall.front_face(name))
+        if k in found:
+            qty[found[k]["name"]] = qty.get(found[k]["name"], 0) + n
+    counts = {r: sum(qty.get(name, 1) for name, v in roles.items() if r in v) for r in ROLES}
     if args.json:
         print(json.dumps({"cards": roles, "counts": counts}, indent=2, ensure_ascii=False))
     else:

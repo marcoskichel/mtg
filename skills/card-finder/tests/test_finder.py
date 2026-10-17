@@ -294,9 +294,22 @@ class RolesCliTest(unittest.TestCase):
                  "saruman, the white hand": card("Saruman, the White Hand", "o-sar", "")}
         code, out, _ = self.run_cli(["roles", "-d", f.name], found)
         self.assertEqual(code, 0)
-        self.assertIn("ramp: 1", out)
+        self.assertIn("\n  ramp: 1\n", out)
         self.assertIn("removal: 1", out)
         self.assertNotIn("#ramp", out)
+
+    def test_deck_counts_skip_maybeboard_and_weight_quantity(self):
+        text = "// Mainboard\n2 Sol Ring\n\n// Maybeboard\n1 Lightning Bolt\n"
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+            f.write(text)
+        self.addCleanup(Path(f.name).unlink)
+        found = {"sol ring": card("Sol Ring", "o-sol", ""),
+                 "lightning bolt": card("Lightning Bolt", "o-bolt", "")}
+        code, out, _ = self.run_cli(["roles", "-d", f.name], found)
+        self.assertEqual(code, 0)
+        self.assertIn("\n  ramp: 2\n", out)
+        self.assertIn("\n  removal: 0\n", out)
+        self.assertNotIn("Lightning Bolt", out)
 
     def test_json(self):
         found = {"sol ring": card("Sol Ring", "o-sol", "")}

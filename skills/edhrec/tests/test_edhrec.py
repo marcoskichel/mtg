@@ -167,27 +167,6 @@ class ExtractTest(unittest.TestCase):
         self.assertEqual(len(edhrec.list_names(THEME_PAGE)), 3)
 
 
-class DeckNamesTest(unittest.TestCase):
-    def test_moxfield_file_with_headers_printings_tags(self):
-        text = ("// Moxfield: https://moxfield.com/decks/x\n// Nome: Test\n// Bracket: 3\n\n"
-                "// Commander\n1 Saruman, the White Hand (LTC) 8 #cmd\n\n"
-                "// Mainboard\n1 Sol Ring (CMM) 410 *F* #ramp\n"
-                "1 Ash Barrens (PLST) CM2-235\n"
-                "1 Delver of Secrets // Insectile Aberration\n")
-        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
-            f.write(text)
-        self.addCleanup(Path(f.name).unlink)
-        self.assertEqual(edhrec.deck_names(f.name),
-                         ["Saruman, the White Hand", "Sol Ring", "Ash Barrens",
-                          "Delver of Secrets // Insectile Aberration"])
-
-    def test_bare_names_without_quantity(self):
-        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
-            f.write("Sol Ring\nBlood Artist\n\n2 Swamp\n")
-        self.addCleanup(Path(f.name).unlink)
-        self.assertEqual(edhrec.deck_names(f.name), ["Sol Ring", "Blood Artist", "Swamp"])
-
-
 class CliTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
