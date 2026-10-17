@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -295,6 +296,19 @@ class CliTest(unittest.TestCase):
         self.run_cli(["stamp", str(self.dir / "test.profile.md")])
         header, _ = prof.read_profile(self.dir / "test.profile.md")
         self.assertEqual(header["bracket"], "4")
+
+    def test_profile_works_from_another_directory(self):
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.dir)
+        self.run_cli(["new", "--deck", "test.txt"])
+        profile = self.dir / "test.profile.md"
+        self.assertEqual(prof.read_profile(profile)[0]["profile-of"], "test.txt")
+        os.chdir("/")
+        code, out, err = self.run_cli(["show", str(profile)])
+        self.assertEqual(code, 0, err)
+        self.assertIn("status: fresh", out)
+        code, _, err = self.run_cli(["stamp", str(profile)])
+        self.assertEqual(code, 0, err)
 
     def test_new_strategy_only(self):
         out_path = self.dir / "aristo.profile.md"

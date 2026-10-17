@@ -10,6 +10,7 @@ plan without anyone noticing.
 
 import argparse
 import hashlib
+import os
 import json
 import sys
 import time
@@ -217,9 +218,15 @@ def _lock_lines(profile):
     return lp.read_text().splitlines() if lp.exists() else None
 
 
-def _deck_header(deck_path, boards, meta, f):
+def _deck_of(profile, header):
+    """Deck path from a profile header; relative paths are relative to the profile."""
+    ref = header.get("profile-of")
+    return Path(profile).parent / ref if ref else None
+
+
+def _deck_header(deck_path, profile, boards, meta, f):
     return {
-        "profile-of": str(deck_path),
+        "profile-of": os.path.relpath(Path(deck_path).resolve(), Path(profile).resolve().parent),
         "commanders": " + ".join(commander_names(boards)),
         "colors": f["colors"],
         "bracket": str(meta.get("bracket", "")).strip() or "?",
@@ -234,7 +241,7 @@ def cmd_show(args):
     if target.name.endswith(".profile.md"):
         profile = target
         header, body = read_profile(profile)
-        deck_path = header.get("profile-of")
+        deck_path = _deck_of(profile, header)
     else:
         deck_path, profile = target, profile_path(target)
         header, body = read_profile(profile) if profile.exists() else ({}, None)
@@ -294,7 +301,7 @@ def cmd_new(args):
             return 2
         cards, roles, missing = load_cards(boards)
         f = facts(boards, cards, roles)
-        header = _deck_header(args.deck, boards, meta, f)
+        header = _deck_header(args.deck, out, boards, meta, f)
         if args.bracket:
             header["bracket"] = str(args.bracket)
         lock_path(out).write_text("\n".join(deck_lines(boards)) + "\n")
@@ -316,7 +323,7 @@ def cmd_new(args):
 def cmd_stamp(args):
     profile = Path(args.profile)
     header, _ = read_profile(profile)
-    deck_path = header.get("profile-of")
+    deck_path = _deck_of(profile, header)
     header["reviewed"] = time.strftime("%Y-%m-%d")
     if deck_path:
         boards, meta = _read_deck(deck_path)
