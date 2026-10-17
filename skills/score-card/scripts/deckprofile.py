@@ -129,13 +129,18 @@ STRATEGY_SKELETON = """
 """
 
 
+def card_key(name):
+    """Lookup key for a deck line: Scryfall resolves 'A // B' by its front face."""
+    return moxfield.fold(scryfall.front_face(name))
+
+
 def load_cards(boards):
-    """(cards keyed by folded name, roles by card name, missing names)."""
+    """(cards keyed by card_key, roles by card name, missing names)."""
     names = [c.name for b in moxfield.DECK_BOARDS for c in boards.get(b) or []]
     report = scryfall.Report()
     found, wanted = scryfall.resolve_names(names, report)
     report.emit()
-    cards = {moxfield.fold(wanted[k]): found[k] for k in wanted if k in found}
+    cards = {card_key(wanted[k]): found[k] for k in wanted if k in found}
     idx = finder.TagIndex(finder.load_tags())
     gone = finder.missing_roles(idx)
     if gone:
@@ -151,7 +156,7 @@ def facts(boards, cards, roles):
     for b in moxfield.DECK_BOARDS:
         for c in boards.get(b) or []:
             size += c.qty
-            card = cards.get(moxfield.fold(c.name))
+            card = cards.get(card_key(c.name))
             if not card:
                 continue
             for color in card.get("produced_mana") or []:
@@ -171,7 +176,7 @@ def facts(boards, cards, roles):
             nonlands += c.qty
     colors = set()
     for c in boards.get("commanders") or []:
-        card = cards.get(moxfield.fold(c.name))
+        card = cards.get(card_key(c.name))
         colors |= set((card or {}).get("color_identity") or [])
     # Command Tower and Arcane Signet list all five colors in produced_mana;
     # only the commander's identity (plus colorless) can actually be made.

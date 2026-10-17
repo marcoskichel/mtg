@@ -251,7 +251,7 @@ class RolesTest(unittest.TestCase):
 class RolesCliTest(unittest.TestCase):
     def run_cli(self, argv, found):
         def fake_resolve(names, report):
-            wanted = {scryfall.fold(scryfall.front_face(n)): n for n in names}
+            wanted = {scryfall.fold(scryfall.front_face(n)): scryfall.front_face(n) for n in names}
             for k, n in wanted.items():
                 if k not in found:
                     report.missing[n] = ""

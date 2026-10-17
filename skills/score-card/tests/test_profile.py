@@ -299,5 +299,32 @@ class CliTest(unittest.TestCase):
         self.assertIn("no commander", err)
 
 
+class LoadCardsTest(unittest.TestCase):
+    """Real scryfall.resolve_names, only HTTP and the tag file mocked."""
+
+    def test_dfc_in_deck_counts_in_facts(self):
+        text = ("// Commander\n1 Saruman, the White Hand\n\n"
+                "// Mainboard\n1 Delver of Secrets // Insectile Aberration\n")
+        delver = {"object": "card", "name": "Delver of Secrets // Insectile Aberration",
+                  "layout": "transform", "cmc": 1.0, "oracle_id": "o-delver",
+                  "type_line": "Creature — Human Wizard // Creature — Human Insect",
+                  "color_identity": ["U"], "produced_mana": []}
+        saruman = {"object": "card", "name": "Saruman, the White Hand", "layout": "normal",
+                   "cmc": 4.0, "oracle_id": "o-sar", "type_line": "Legendary Creature",
+                   "color_identity": ["U", "B", "R"]}
+
+        def fake_http(method, url, body=None, retries=3):
+            return {"object": "list", "data": [delver, saruman]}
+
+        boards, _ = boards_of(text)
+        with mock.patch.object(prof.scryfall, "_http", side_effect=fake_http), \
+             mock.patch.object(prof.finder, "load_tags", return_value=[]), \
+             mock.patch.object(sys, "stderr", io.StringIO()):
+            cards, roles, missing = prof.load_cards(boards)
+        f = prof.facts(boards, cards, roles)
+        self.assertEqual(missing, [])
+        self.assertEqual(f["curve"], {1: 1, 4: 1})
+
+
 if __name__ == "__main__":
     unittest.main()

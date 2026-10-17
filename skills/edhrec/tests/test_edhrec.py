@@ -199,7 +199,7 @@ class CliTest(unittest.TestCase):
 
     def run_cli(self, argv, found, pages):
         def fake_resolve(names, report):
-            wanted = {edhrec.scryfall.fold(edhrec.scryfall.front_face(n)): n for n in names}
+            wanted = {edhrec.scryfall.fold(edhrec.scryfall.front_face(n)): edhrec.scryfall.front_face(n) for n in names}
             for k, n in wanted.items():
                 if k not in found:
                     report.missing[n] = ""
