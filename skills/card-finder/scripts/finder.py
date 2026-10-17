@@ -366,8 +366,8 @@ def main(argv=None):
     p.add_argument("--order", default="edhrec", metavar="FIELD",
                    help="Scryfall order (default edhrec: most played first)")
     p.add_argument("--dir", choices=("asc", "desc"))
-    p.add_argument("--limit", type=int, default=25, metavar="N",
-                   help="maximum cards shown (default 25)")
+    p.add_argument("--limit", type=int, default=50, metavar="N",
+                   help="maximum cards shown (default 50)")
     p.add_argument("--all", action="store_true", help="follow every page")
     p.add_argument("--formats", default="commander",
                    help="legalities to show, comma-separated (default: commander)")
