@@ -310,6 +310,20 @@ class CliTest(unittest.TestCase):
         code, _, err = self.run_cli(["stamp", str(profile)])
         self.assertEqual(code, 0, err)
 
+    def test_new_rejects_output_not_named_profile_md(self):
+        code, _, err = self.run_cli(["new", "--deck", str(self.deck), "-o",
+                                     str(self.dir / "foo.md")])
+        self.assertEqual(code, 2)
+        self.assertIn(".profile.md", err)
+        self.assertFalse((self.dir / ".profile.lock").exists())
+
+    def test_stamp_refreshes_colors(self):
+        self.run_cli(["new", "--deck", str(self.deck)])
+        p = self.dir / "test.profile.md"
+        p.write_text(p.read_text().replace("// colors: ubr", "// colors: wb"))
+        self.run_cli(["stamp", str(p)])
+        self.assertEqual(prof.read_profile(p)[0]["colors"], "ubr")
+
     def test_new_strategy_only(self):
         out_path = self.dir / "aristo.profile.md"
         code, _, _ = self.run_cli(["new", "--strategy", "aristocrats, drain on death",

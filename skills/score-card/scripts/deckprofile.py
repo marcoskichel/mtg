@@ -288,6 +288,9 @@ def cmd_new(args):
             print("new without --deck needs -o PATH.profile.md", file=sys.stderr)
             return 2
         out = Path(args.output)
+    if not out.name.endswith(".profile.md"):
+        print(f"{out}: a profile file must be named <name>.profile.md", file=sys.stderr)
+        return 2
     if out.exists():
         print(f"{out} exists; edit it, or run stamp after reviewing", file=sys.stderr)
         return 1
@@ -330,6 +333,11 @@ def cmd_stamp(args):
         lines = deck_lines(boards)
         header["deck-hash"] = fingerprint(lines)
         header["commanders"] = " + ".join(commander_names(boards))
+        cmd_boards = {"commanders": boards.get("commanders") or []}
+        cards, roles, _ = load_cards(cmd_boards)
+        colors = facts(cmd_boards, cards, roles)["colors"]
+        if colors:
+            header["colors"] = colors
         header["cards-at-write"] = str(sum(int(ln.split(" ", 1)[0]) for ln in lines))
         if str(meta.get("bracket", "")).strip():
             header["bracket"] = str(meta["bracket"]).strip()
