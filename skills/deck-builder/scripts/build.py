@@ -121,7 +121,8 @@ def is_land(card):
 
 
 def is_basic(card):
-    return (card.get("type_line") or "").startswith("Basic Land")
+    """Basic supertype on the front face: Swamp, Wastes, Snow-Covered Swamp."""
+    return "Basic" in (card.get("type_line") or "").split("//")[0].split("—")[0].split()
 
 
 def identity_of(cards):
@@ -216,15 +217,28 @@ def cmd_init(args):
               file=sys.stderr)
         return 2
     bracket = int(bracket)
-    if build_path(args.deck).exists() and not args.force:
-        print(f"{build_path(args.deck)} exists; pass --force to start the targets over",
-              file=sys.stderr)
+    old_state = load_state(args.deck)
+    if old_state and not args.force:
+        print(f"{build_path(args.deck)} exists; pass --force to redo the targets "
+              "(the pool, rejected cards and rounds are kept)", file=sys.stderr)
         return 1
     if str(meta.get("bracket", "")).strip() != str(bracket):
         meta["bracket"] = bracket
         write_deck(args.deck, boards, meta)
 
     cmd_cards, missing = resolve(commanders)
+    if missing:
+        print(f"commander not found on Scryfall: {', '.join(missing)}", file=sys.stderr)
+        return 2
+    # EDHREC pages are named after the canonical card, not what the file says.
+    commanders = [cmd_cards[card_key(n)]["name"] for n in commanders]
+    renamed = False
+    for c in boards["commanders"]:
+        canonical = cmd_cards[card_key(c.name)]["name"]
+        if c.name != canonical:
+            c.name, renamed = canonical, True
+    if renamed:
+        write_deck(args.deck, boards, meta)
     identity = identity_of(cmd_cards.values())
     slug = _commander_path(commanders)
     page, _ = edhrec.fetch("average-decks/" + slug)
@@ -241,7 +255,10 @@ def cmd_init(args):
     state = {"commanders": commanders, "identity": identity, "bracket": bracket,
              "targets": targets, "target_sources": sources,
              "budget": {"total": args.budget, "card": args.budget_card},
-             "pool": {}, "rejected": [], "rounds": []}
+             "pool": {}, "rejected": [], "rounds": [], "offers": {}}
+    for kept in ("pool", "rejected", "rounds", "offers"):
+        if old_state and kept in old_state:
+            state[kept] = old_state[kept]
     save_state(args.deck, state)
     print(f"targets for {' + '.join(commanders)} (bracket {bracket}, identity "
           f"{identity or 'colorless'}):")
@@ -253,7 +270,7 @@ def cmd_init(args):
     print(f"  {'theme':<11}  the rest; adjust targets in {build_path(args.deck)}")
     if not avg:
         print(f"note: EDHREC has no average deck for {slug}; template only", file=sys.stderr)
-    return 1 if missing else 0
+    return 0
 
 
 def cmd_pool(args):
@@ -261,27 +278,40 @@ def cmd_pool(args):
     if state is None:
         return 2
     boards, meta = read_deck(args.deck)
-    taken = {card_key(c.name) for c in deck_cards(boards, moxfield.BOARDS)}
+    # Maybeboard cards are candidates too (a pulled list, a hand edit, a cut):
+    # they get pool data like the rest, without a second line in the file.
+    taken = {card_key(c.name) for c in deck_cards(boards, ("commanders", "companions",
+                                                           "mainboard", "sideboard"))}
+    in_maybe = {card_key(c.name) for c in boards["maybeboard"]}
     rejected = {card_key(n) for n in state["rejected"]}
 
-    found_rows = {}
+    rows = {}   # card_key -> row; one row per card however each source spells it
+
+    def add(name, source, inclusion=None, synergy=None):
+        row = rows.setdefault(card_key(name), {"name": name, "inclusion": None,
+                                               "synergy": None, "sources": []})
+        if row["inclusion"] is None and inclusion is not None:
+            row["inclusion"] = inclusion
+        if row["synergy"] is None and synergy is not None:
+            row["synergy"] = synergy
+        if source not in row["sources"]:
+            row["sources"].append(source)
+
     slug = _commander_path(state["commanders"])
     page, _ = edhrec.fetch("commanders/" + slug)
+    no_page = page is None
     for row in edhrec.commander_cards(page) if page else []:
-        found_rows.setdefault(row["name"], {"inclusion": row["inclusion"],
-                                            "synergy": row["synergy"], "sources": ["edhrec"]})
+        add(row["name"], "edhrec", row["inclusion"], row["synergy"])
     avg = edhrec.average_deck(edhrec.fetch("average-decks/" + slug)[0])
     for _, name in avg["cards"] if avg else []:
-        found_rows.setdefault(name, {"inclusion": None, "synergy": None, "sources": []})
-        if "average" not in found_rows[name]["sources"]:
-            found_rows[name]["sources"].append("average")
+        add(name, "average")
     if args.extra:
         for _, name in moxfield.read_card_list(args.extra, moxfield.BOARDS):
-            found_rows.setdefault(name, {"inclusion": None, "synergy": None, "sources": []})
-            if "search" not in found_rows[name]["sources"]:
-                found_rows[name]["sources"].append("search")
+            add(name, "search")
+    for c in boards["maybeboard"]:
+        add(c.name, "maybeboard")
 
-    names = [n for n in found_rows if card_key(n) not in taken | rejected]
+    names = [r["name"] for k, r in rows.items() if k not in taken | rejected]
     cards, missing = resolve(names)
     dropped = {"off-identity": [], "not legal": [], "game changer": [], "over budget": [],
                "basic land": []}
@@ -308,25 +338,29 @@ def cmd_pool(args):
         dropped["over budget"] = [f"{c['name']} (R$ {cost[c['name']]:.2f})" for _, c in over]
         keep = [x for x in keep if x not in over]
     tags = roles_of([c for _, c in keep])
+    added = 0
     for n, c in keep:
-        row = found_rows[n]
+        row = rows[card_key(n)]
         state["pool"][c["name"]] = {
             "inclusion": row["inclusion"], "synergy": row["synergy"],
             "sources": row["sources"], "roles": tags.get(c["name"], []),
             "land": is_land(c), "gc": bool(c.get("game_changer")), "cmc": c.get("cmc")}
-        boards["maybeboard"].append(moxfield.Card(1, c["name"], "maybeboard"))
-    boards["maybeboard"] = moxfield.merge(boards["maybeboard"])
-    for card in boards["maybeboard"]:
-        card.qty = 1
+        if card_key(n) not in in_maybe and card_key(c["name"]) not in in_maybe:
+            boards["maybeboard"].append(moxfield.Card(1, c["name"], "maybeboard"))
+            in_maybe.add(card_key(c["name"]))
+            added += 1
     write_deck(args.deck, boards, meta)
     save_state(args.deck, state)
-    print(f"pool: {len(keep)} added, {len(boards['maybeboard'])} in Maybeboard")
+    print(f"pool: {added} added, {len(boards['maybeboard'])} in Maybeboard")
     for why, items in dropped.items():
         if items and why != "basic land":
             print(f"  dropped {len(items)} {why}: {', '.join(items)}")
     if missing:
         print(f"  unresolved: {', '.join(missing)}")
-    return 1 if missing else 0
+    if no_page:
+        print(f"EDHREC has no commander page for {slug}: the pool holds only the "
+              "average deck, --extra and Maybeboard cards", file=sys.stderr)
+    return 1 if missing or no_page else 0
 
 
 def _fmt_pct(x):
@@ -389,7 +423,7 @@ def cmd_round(args):
         bits.append("source: " + ", ".join(d["sources"]))
         out.append({"name": n, "reason": "; ".join(bits)})
     Path(args.out).write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n")
-    state["last_round"] = args.role
+    state.setdefault("offers", {})[str(Path(args.out).resolve())] = args.role
     save_state(args.deck, state)
 
     deck_names = [c.name for c in deck_cards(boards)]
@@ -414,6 +448,14 @@ def cmd_apply(args):
     if answer.get("status") != "picked":
         print(f"answer is {answer.get('status')!r}: nothing applied", file=sys.stderr)
         return 1
+    # The round comes from the file round wrote, so applying an older offer
+    # after building a newer one still uses the right rules.
+    role = "cut" if args.cut else args.role or (state.get("offers") or {}).get(
+        str(Path(args.offered).resolve()))
+    if not role:
+        print(f"{args.offered} wasn't written by round: pass --role <round>",
+              file=sys.stderr)
+        return 2
     offered = [o["name"] for o in json.loads(Path(args.offered).read_text())]
     picked = {card_key(p["name"]): p for p in answer.get("picked") or []}
     boards, meta = read_deck(args.deck)
@@ -433,52 +475,58 @@ def cmd_apply(args):
         p = picked.get(card_key(card.name))
         if not p:
             continue
-        boards[src].remove(card)
         if args.cut:
-            boards[dst].append(moxfield.Card(1, card.name, dst))
+            # One copy per pick: cutting a Swamp from 14 leaves 13.
+            card.qty -= 1
+            if card.qty <= 0:
+                boards[src].remove(card)
+            boards[dst].append(moxfield.Card(1, card.name, dst, card.set, card.cn, card.foil,
+                                             card.alter, card.tags, card.gtags))
         else:
-            boards[dst].append(moxfield.Card(card.qty, p["name"], dst, p.get("set"),
-                                             p.get("collector_number"), tags=card.tags))
+            boards[src].remove(card)
+            boards[dst].append(moxfield.Card(card.qty, p["name"], dst,
+                                             p.get("set") or card.set,
+                                             p.get("collector_number") or card.cn,
+                                             card.foil, card.alter, card.tags, card.gtags))
         moved.append(p["name"])
-    role = "cut" if args.cut else args.role or state.get("last_round") or "?"
-    rejected_now = []
-    # Declining an auto-include is not declining the card: after no-brainers the
-    # rest stays in the pool for its role round.
-    if not args.cut and role != "no-brainers":
-        for name in offered:
-            if card_key(name) in picked:
-                continue
-            boards["maybeboard"] = [c for c in boards["maybeboard"]
-                                    if card_key(c.name) != card_key(name)]
-            if name not in state["rejected"]:
-                state["rejected"].append(name)
-                rejected_now.append(name)
+    boards[dst] = moxfield.merge(boards[dst])
+    rejected_now = _reject_rest(state, boards, role, offered, picked)
     write_deck(args.deck, boards, meta)
-    state["rounds"].append({"role": role,
-                            "offered": len(offered), "picked": moved, "cut": args.cut,
-                            "note": answer.get("note")})
+    state["rounds"].append({"role": role, "offered": len(offered), "picked": moved,
+                            "cut": args.cut, "note": answer.get("note")})
     save_state(args.deck, state)
     verb = "cut" if args.cut else "added"
     print(f"{verb} {len(moved)}: {', '.join(moved) or '-'}")
     if rejected_now:
         print(f"rejected {len(rejected_now)}: {', '.join(rejected_now)}")
-    _stamp_profile(args.deck)
     return 0
 
 
-def _stamp_profile(deck):
-    """Keep score-card's profile fresh: the build changes the list on purpose."""
-    profile = Path(deck).with_name(Path(deck).stem + ".profile.md")
-    if profile.exists():
-        sys.path.insert(0, str(ROOT / "score-card" / "scripts"))
-        import deckprofile
-        buf = __import__("io").StringIO()
-        old = sys.stdout
-        sys.stdout = buf
-        try:
-            deckprofile.main(["stamp", str(profile)])
-        finally:
-            sys.stdout = old
+def _reject_rest(state, boards, role, offered, picked):
+    """Offered but not picked leaves the pool, unless another round still wants it.
+
+    No-brainers declined stay for their role round; a card with several roles
+    (Path to Exile: removal and ramp) stays until each of its role rounds ran.
+    """
+    if role in ("cut", "no-brainers"):
+        return []
+    done = {r["role"] for r in state["rounds"]} | {role}
+    out = []
+    for name in offered:
+        if card_key(name) in picked:
+            continue
+        row = state["pool"].get(name) or {}
+        pending = set(roles_to_groups(row.get("roles") or [])) - done
+        if row.get("land") and "lands" not in done:
+            pending.add("lands")
+        if pending:
+            continue
+        boards["maybeboard"] = [c for c in boards["maybeboard"]
+                                if card_key(c.name) != card_key(name)]
+        if name not in state["rejected"]:
+            state["rejected"].append(name)
+            out.append(name)
+    return out
 
 
 def cmd_status(args):
@@ -497,9 +545,12 @@ def cmd_status(args):
            "game_changers": {"have": gcs, "limit": gc_limit(state["bracket"])},
            "pool_size": pool_size, "rounds": [r["role"] for r in state["rounds"]]}
     if state["budget"].get("total"):
-        cost = prices(names)
+        qty = Counter()
+        for c in deck_cards(boards):
+            qty[c.name] += c.qty
+        cost = prices(list(qty))
         out["budget"] = {"cap": float(state["budget"]["total"]),
-                         "spent": round(sum(v for v in cost.values() if v), 2),
+                         "spent": round(sum((cost.get(n) or 0) * q for n, q in qty.items()), 2),
                          "unpriced": sorted(n for n, v in cost.items() if v is None)}
     if args.json:
         print(json.dumps(out, indent=2, ensure_ascii=False))

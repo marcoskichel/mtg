@@ -38,10 +38,16 @@ CARDS = {c["name"]: c for c in [
     sc("Swamp", "B", "Basic Land — Swamp", cmc=0),
     sc("Night's Whisper", "B", "Sorcery", cmc=2),
     sc("Delver of Secrets // Insectile Aberration", "U"),
+    sc("Path to Exile", "W", "Instant", cmc=1),
+    sc("Snow-Covered Swamp", "B", "Basic Snow Land — Swamp", cmc=0),
+    sc("Tymna the Weaver", "WB", "Legendary Creature — Human Cleric", cmc=3),
+    sc("Kraum, Ludevic's Opus", "UR", "Legendary Creature — Zombie Horror", cmc=5),
 ]}
+ALIASES = {"edgar markovv": "Edgar Markov"}
 ROLES = {"Sol Ring": ["ramp", "mana-rock"], "Arcane Signet": ["ramp", "mana-rock"],
          "Swords to Plowshares": ["removal"], "Night's Whisper": ["draw", "card-advantage"],
-         "Cyclonic Rift": ["removal"], "Rhystic Study": ["draw", "card-advantage"]}
+         "Cyclonic Rift": ["removal"], "Rhystic Study": ["draw", "card-advantage"],
+         "Path to Exile": ["removal", "ramp"]}
 
 DECK = """// Name: Test Gang
 // Format: commander
@@ -58,10 +64,10 @@ DECK = """// Name: Test Gang
 def fake_resolve(names):
     out = {}
     for n in names:
-        key = build.card_key(n)
+        key = build.card_key(ALIASES.get(build.card_key(n), n))
         for c in CARDS.values():
             if build.card_key(c["name"]) == key:
-                out[key] = c
+                out[build.card_key(n)] = c
     return out, [n for n in names if build.card_key(n) not in out]
 
 
@@ -194,7 +200,7 @@ class PoolTest(Base):
                                  "Swords to Plowshares"])
         self.assertIn("off-identity", out)
         self.assertIn("Llanowar Elves", out)
-        self.assertIn("Mana Crypt", out)
+        self.assertRegex(out, r"not legal: .*Mana Crypt")
         pool = self.state()["pool"]
         self.assertAlmostEqual(pool["Captivating Vampire"]["inclusion"], 0.8)
         self.assertEqual(pool["Night's Whisper"]["sources"], ["search"])
@@ -388,6 +394,198 @@ class StatusTest(Base):
                                     prices={"Edgar Markov": 80.0, "Sol Ring": 8.0})
         s = json.loads(out)
         self.assertEqual(s["budget"], {"cap": 100.0, "spent": 88.0, "unpriced": []})
+
+
+class ReviewFixesTest(Base):
+    """Findings from the team review, each pinned by a test."""
+
+    def init_pool(self, pages=PAGES, extra=None):
+        self.run_cli(["init", str(self.deck)], pages)
+        args = ["pool", str(self.deck)]
+        if extra:
+            f = self.dir / "extra.txt"
+            f.write_text(extra)
+            args += ["--extra", str(f)]
+        return self.run_cli(args, pages)
+
+    def test_budget_counts_quantity(self):
+        self.deck.write_text(DECK + "10 Swamp\n")
+        self.run_cli(["init", str(self.deck), "--budget", "200"], PAGES)
+        code, out, _ = self.run_cli(["status", str(self.deck), "--json"], PAGES,
+                                    prices={"Edgar Markov": 80.0, "Sol Ring": 8.0,
+                                            "Swamp": 1.0})
+        self.assertEqual(json.loads(out)["budget"]["spent"], 98.0)
+
+    def test_cut_takes_one_copy_and_keeps_printing_and_tags(self):
+        self.deck.write_text(DECK.replace("1 Sol Ring (CMM) 410", "1 Sol Ring (CMM) 410 #ramp")
+                             + "6 Swamp (J25) 89\n")
+        self.init_pool()
+        offer = self.dir / "cut.json"
+        offer.write_text(json.dumps([{"name": "Swamp", "reason": "x"},
+                                     {"name": "Sol Ring", "reason": "x"}]))
+        ans = self.dir / "ans.json"
+        ans.write_text(json.dumps({"status": "picked", "picked": [
+            {"name": "Swamp", "set": "j25", "collector_number": "89"},
+            {"name": "Sol Ring", "set": "cmm", "collector_number": "410"}]}))
+        code, _, _ = self.run_cli(["apply", str(self.deck), "--answer", str(ans),
+                                   "--offered", str(offer), "--cut"], PAGES)
+        self.assertEqual(code, 0)
+        b = self.boards()
+        main = {c.name: c for c in b["mainboard"]}
+        self.assertEqual(main["Swamp"].qty, 5)
+        maybe = {c.name: c for c in b["maybeboard"]}
+        self.assertEqual((maybe["Sol Ring"].set, maybe["Sol Ring"].cn, maybe["Sol Ring"].tags),
+                         ("cmm", "410", ["ramp"]))
+
+    def test_apply_reads_role_from_the_offer_file(self):
+        self.init_pool()
+        nb, rr = self.dir / "nb.json", self.dir / "ramp.json"
+        self.run_cli(["round", str(self.deck), "no-brainers", "--out", str(nb)], PAGES)
+        self.run_cli(["round", str(self.deck), "ramp", "--out", str(rr)], PAGES)
+        ans = self.dir / "ans.json"
+        ans.write_text(json.dumps({"status": "picked", "picked": [
+            {"name": "Command Tower", "set": "cmm", "collector_number": "1"}]}))
+        code, _, _ = self.run_cli(["apply", str(self.deck), "--answer", str(ans),
+                                   "--offered", str(nb)], PAGES)
+        self.assertEqual(code, 0)
+        self.assertEqual(self.state()["rejected"], [])
+        self.assertEqual(self.state()["rounds"][-1]["role"], "no-brainers")
+
+    def test_apply_unknown_offer_needs_role(self):
+        self.init_pool()
+        offer = self.dir / "hand.json"
+        offer.write_text(json.dumps([{"name": "Bloodghast", "reason": "x"}]))
+        ans = self.dir / "ans.json"
+        ans.write_text(json.dumps({"status": "picked", "picked": [
+            {"name": "Bloodghast", "set": "m10", "collector_number": "1"}]}))
+        code, _, err = self.run_cli(["apply", str(self.deck), "--answer", str(ans),
+                                     "--offered", str(offer)], PAGES)
+        self.assertEqual(code, 2)
+        self.assertIn("--role", err)
+
+    def test_maybeboard_cards_join_the_pool(self):
+        self.deck.write_text(DECK + "\n// Maybeboard\n1 Night's Whisper\n")
+        self.init_pool()
+        self.assertIn("Night's Whisper", self.state()["pool"])
+
+    def test_init_force_keeps_pool_and_rounds_work(self):
+        self.init_pool()
+        st = self.state()
+        st["rejected"] = ["Bloodghast"]
+        build.save_state(self.deck, st)
+        self.run_cli(["init", str(self.deck), "--force"], PAGES)
+        self.run_cli(["pool", str(self.deck)], PAGES)
+        out = self.dir / "t.json"
+        self.run_cli(["round", str(self.deck), "theme", "--out", str(out)], PAGES)
+        self.assertEqual([d["name"] for d in json.loads(out.read_text())],
+                         ["Captivating Vampire"])
+        self.assertEqual(self.state()["rejected"], ["Bloodghast"])
+
+    def test_commander_name_comes_from_scryfall(self):
+        self.deck.write_text(DECK.replace("1 Edgar Markov", "1 Edgar Markovv"))
+        code, _, _ = self.run_cli(["init", str(self.deck)], PAGES)
+        self.assertEqual(code, 0)
+        st = self.state()
+        self.assertEqual(st["commanders"], ["Edgar Markov"])
+        self.assertEqual(st["target_sources"]["lands"], "average deck")
+        self.assertEqual([c.name for c in self.boards()["commanders"]], ["Edgar Markov"])
+
+    def test_pool_without_commander_page_fails(self):
+        self.run_cli(["init", str(self.deck)], PAGES)
+        code, _, err = self.run_cli(["pool", str(self.deck)], {})
+        self.assertEqual(code, 1)
+        self.assertIn("EDHREC", err)
+
+    def test_one_row_per_card_across_spellings(self):
+        self.init_pool(extra="captivating vampire\n")
+        row = self.state()["pool"]["Captivating Vampire"]
+        self.assertAlmostEqual(row["inclusion"], 0.8)
+        self.assertEqual(sorted(row["sources"]), ["edhrec", "search"])
+
+    def test_snow_basics_are_basics(self):
+        self.init_pool(extra="Snow-Covered Swamp\n")
+        self.assertNotIn("Snow-Covered Swamp", {c.name for c in self.boards()["maybeboard"]})
+
+    def test_multi_role_card_survives_one_role_round(self):
+        self.init_pool(extra="Path to Exile\n")
+        out = self.dir / "ramp.json"
+        self.run_cli(["round", str(self.deck), "ramp", "--out", str(out)], PAGES)
+        offered = [d["name"] for d in json.loads(out.read_text())]
+        self.assertIn("Path to Exile", offered)
+        ans = self.dir / "ans.json"
+        ans.write_text(json.dumps({"status": "picked", "picked": [
+            {"name": "Arcane Signet", "set": "cmm", "collector_number": "1"}]}))
+        self.run_cli(["apply", str(self.deck), "--answer", str(ans), "--offered", str(out)],
+                     PAGES)
+        self.assertNotIn("Path to Exile", self.state()["rejected"])
+        out2 = self.dir / "removal.json"
+        self.run_cli(["round", str(self.deck), "removal", "--out", str(out2)], PAGES)
+        self.assertIn("Path to Exile", [d["name"] for d in json.loads(out2.read_text())])
+
+    def test_apply_leaves_the_profile_alone(self):
+        self.init_pool()
+        profile = self.dir / "gang.profile.md"
+        profile.write_text("// profile-of: gang.txt\n// deck-hash: aaaaaaaa\n\n## Plan\nx\n")
+        out = self.dir / "t.json"
+        self.run_cli(["round", str(self.deck), "theme", "--out", str(out)], PAGES)
+        ans = self.dir / "ans.json"
+        ans.write_text(json.dumps({"status": "picked", "picked": [
+            {"name": "Bloodghast", "set": "m10", "collector_number": "1"}]}))
+        self.run_cli(["apply", str(self.deck), "--answer", str(ans), "--offered", str(out)],
+                     PAGES)
+        self.assertIn("aaaaaaaa", profile.read_text())
+
+    def test_init_counts_roles_in_average_deck(self):
+        self.run_cli(["init", str(self.deck)], PAGES)
+        st = self.state()
+        self.assertEqual(st["targets"]["ramp"], build.TEMPLATE["ramp"] - 3)
+        self.assertEqual(st["targets"]["removal"], build.TEMPLATE["removal"] - 3)
+        self.assertEqual(st["target_sources"]["ramp"], "average deck")
+
+    def test_status_over_bracket(self):
+        self.deck.write_text(DECK + "1 Bolas's Citadel\n1 Rhystic Study\n1 Cyclonic Rift\n"
+                             "1 Mana Crypt\n")
+        CARDS["Mana Crypt"]["game_changer"] = True
+        self.addCleanup(CARDS["Mana Crypt"].__setitem__, "game_changer", False)
+        self.run_cli(["init", str(self.deck)], PAGES)
+        code, _, err = self.run_cli(["status", str(self.deck)], PAGES)
+        self.assertEqual(code, 1)
+        self.assertIn("OVER BRACKET", err)
+
+    def test_pair_commander_uses_pair_page(self):
+        self.deck.write_text(DECK.replace("1 Edgar Markov",
+                                          "1 Tymna the Weaver\n1 Kraum, Ludevic's Opus"))
+        pages = {"average-decks/kraum-ludevics-opus-tymna-the-weaver": AVG}
+        self.run_cli(["init", str(self.deck)], pages)
+        st = self.state()
+        self.assertEqual(st["target_sources"]["lands"], "average deck")
+        self.assertEqual(st["identity"], "WUBR")
+
+    def test_pool_reports_unresolved(self):
+        cmdr = json.loads(json.dumps(CMDR))
+        cmdr["container"]["json_dict"]["cardlists"][0]["cardviews"].append(
+            {"name": "Nonexistent Card", "num_decks": 1, "potential_decks": 100})
+        pages = dict(PAGES, **{"commanders/edgar-markov": cmdr})
+        code, out, _ = self.init_pool(pages)
+        self.assertEqual(code, 1)
+        self.assertIn("Nonexistent Card", out)
+
+
+class PricesTest(unittest.TestCase):
+    def test_parses_ligapreco_json(self):
+        payload = {"cartas": [
+            {"pedido": "Sol Ring", "status": "precificado", "unitario": 8.25},
+            {"pedido": "Rare Thing", "status": "sem estoque", "unitario": 0}]}
+        run = mock.Mock(stdout=json.dumps(payload), stderr="")
+        with mock.patch.object(build.subprocess, "run", return_value=run):
+            self.assertEqual(build.prices(["Sol Ring", "Rare Thing"]),
+                             {"Sol Ring": 8.25, "Rare Thing": None})
+
+    def test_no_output_means_unpriced(self):
+        run = mock.Mock(stdout="", stderr="boom")
+        with mock.patch.object(build.subprocess, "run", return_value=run), \
+             mock.patch.object(sys, "stderr", io.StringIO()):
+            self.assertEqual(build.prices(["Sol Ring"]), {"Sol Ring": None})
 
 
 if __name__ == "__main__":
