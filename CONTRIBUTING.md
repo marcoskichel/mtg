@@ -14,9 +14,23 @@ If a script failed, paste the command and its full error output.
 
 ## Setting up
 
-Follow the [installation steps](README.md#installation), then work from the
-repository root. Nothing else to install: the scripts use only Python's
-standard library.
+Install Python 3.10+, Node.js and an agent as in the
+[installation steps](README.md#installation), then clone the repo:
+
+```bash
+git clone https://github.com/marcoskichel/mtg.git
+cd mtg
+```
+
+To try your changes in an agent, install your local copy into a scratch
+folder and start the agent there. Run the install again after each edit,
+since it copies the files:
+
+```bash
+mkdir ../mtg-try && cd ../mtg-try
+npx skills add ../mtg --skill '*'
+codex      # or: claude
+```
 
 ## Project layout
 
@@ -27,7 +41,6 @@ skills/<name>/
   tests/         unittest tests for those scripts
   references/    longer docs the agent reads on demand (optional)
   assets/        static files, such as HTML pages (optional)
-.claude/skills   symlink to skills/, so Claude Code finds them
 AGENTS.md        rules every agent follows in this repo
 ```
 
@@ -54,8 +67,13 @@ Tests must not hit the network. Mock HTTP calls the way the existing tests do.
   is enough to run everything.
 - **Card text comes from the API, never from memory.** Skills fetch every card
   they reason about (see [AGENTS.md](AGENTS.md)).
-- **Paths start at the repository root** in `SKILL.md` examples, for example
-  `python3 skills/card-picker/scripts/picker.py`.
+- **Paths in `SKILL.md` start at `$SKILLS`**, the folder that holds the
+  installed skills: `python3 $SKILLS/card-picker/scripts/picker.py`. Skills
+  are installed side by side, so a script reaches another skill's script
+  through `Path(__file__).resolve().parents[2] / "<skill>"`.
+- **Windows works too.** Pass `encoding="utf-8"` to every text file read or
+  write, and keep the UTF-8 stdio setup in each script's `__main__` block.
+  Use `pathlib` for paths, never hardcoded `/`.
 - **Be gentle with the data sources.** Keep request rates low and cache what
   you can. Scryfall asks for 50–100 ms between requests.
 - **One job per skill.** If a skill needs another skill's data, call that
@@ -64,9 +82,12 @@ Tests must not hit the network. Mock HTTP calls the way the existing tests do.
 ## Writing or changing a skill
 
 - The `description` in the frontmatter decides when the agent uses the skill.
-  Write it as the requests a user would actually type.
+  Write it as the requests a user would actually type. If it contains `: `,
+  write it as a folded block (`description: >-` and the text indented on the
+  next line), or the installer rejects the file.
+- Check the installer still finds all skills: `npx skills add . --list`.
 - Keep `SKILL.md` short and move long reference material into `references/`.
-- Test the skill by hand in Claude Code with a few real requests, and say in
+- Test the skill by hand in Codex or Claude Code with a few real requests, and say in
   the pull request what you tried.
 
 ## Pull requests

@@ -807,4 +807,7 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    # Card names are Unicode; Windows would otherwise use its legacy code page.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")
     sys.exit(main())

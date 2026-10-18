@@ -5,6 +5,11 @@ description: Use when someone wants Magic cards that do something — "find me r
 
 # Finding cards by function
 
+`$SKILLS` below is the folder that holds the installed MTG skills, one level up
+from this file's folder (for example `~/.agents/skills`). Run commands from the
+user's project folder, so files under `decks/` land there. On Windows, call
+`python` (or `py`) when `python3` is missing.
+
 A search result is a **candidate**. It becomes an answer only after you read
 its oracle text and confirm it does what was asked. Oracle tags are
 community-maintained labels: they find the right neighbourhood fast, and they
@@ -13,7 +18,7 @@ all Forests), and Abjure is a `sacrifice-outlet` (sacrificing is part of its
 cost). The text decides.
 
 ```bash
-F=skills/card-finder/scripts/finder.py
+F=$SKILLS/card-finder/scripts/finder.py
 python3 $F tags board wipe             # which tag names this concept
 python3 $F tag removal --depth 2       # its children, to pick the narrowest one
 python3 $F find 'otag:sweeper-one-sided id<=wb f:commander mv<=5'
@@ -26,7 +31,7 @@ python3 $F find 'otag:sweeper-one-sided id<=wb f:commander mv<=5'
    (`f:commander`), mana value, type, budget (`usd<=`). For a deck in
    `decks/`, read its commander and identity from the file before searching.
    Write them as Scryfall keywords from
-   `skills/scryfall-cards/references/search-syntax.md`. It covers commanders
+   `$SKILLS/scryfall-cards/references/search-syntax.md`. It covers commanders
    and partners, land cycles, Game Changers, price and release date, plus the
    traps: `id=wu` is "exactly W/U" but `id<=wu` and `commander:wu` are "fits
    in W/U", and `usd<2` passes if any printing is under $2. A bare color with
@@ -98,7 +103,7 @@ python3 $F find 'otag:sweeper-one-sided id<=wb f:commander mv<=5'
    with every verified card it can hold, or the chat list is out.
 
 ```bash
-P=skills/card-picker/scripts/picker.py
+P=$SKILLS/card-picker/scripts/picker.py
 python3 $P pick --suggestions ramp.json --count 1-3 --title "Ramp for Edgar"
 python3 $P show --suggestions tutors.json --title "Black tutors under 3 mana"
 ```

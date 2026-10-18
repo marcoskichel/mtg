@@ -5,6 +5,11 @@ description: Use when someone asks how good a Magic card is, whether it belongs 
 
 # Scoring cards
 
+`$SKILLS` below is the folder that holds the installed MTG skills, one level up
+from this file's folder (for example `~/.agents/skills`). Run commands from the
+user's project folder, so files under `decks/` land there. On Windows, call
+`python` (or `py`) when `python3` is missing.
+
 A card has no fixed power. Standalone, it's raw power plus how many strategies
 it fits. In a deck, the deck sets the weights: mana value matters less in a
 deck full of cost reducers than in a low-curve aggro deck. Scripts gather
@@ -12,11 +17,11 @@ facts; you grade with `references/rubric.md`. Every grade cites text you
 fetched in this session or a number from the data.
 
 ```bash
-S=skills/scryfall-cards/scripts/scryfall.py
-F=skills/card-finder/scripts/finder.py
-E=skills/edhrec/scripts/edhrec.py
-P=skills/score-card/scripts/deckprofile.py
-K=skills/card-picker/scripts/picker.py
+S=$SKILLS/scryfall-cards/scripts/scryfall.py
+F=$SKILLS/card-finder/scripts/finder.py
+E=$SKILLS/edhrec/scripts/edhrec.py
+P=$SKILLS/score-card/scripts/deckprofile.py
+K=$SKILLS/card-picker/scripts/picker.py
 ```
 
 ## Pick the context

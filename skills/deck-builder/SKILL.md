@@ -1,9 +1,15 @@
 ---
 name: deck-builder
-description: Use when the user wants a Commander deck built or filled out — "build me an Edgar Markov deck", "make a deck around aristocrats in Orzhov", "finish this list", "fill my deck to 100", or a commander, strategy, deck file or Moxfield link to build from. Builds in rounds: a candidate pool, then the user picks per role in card-picker, until the deck is a legal 100.
+description: >-
+  Use when the user wants a Commander deck built or filled out — "build me an Edgar Markov deck", "make a deck around aristocrats in Orzhov", "finish this list", "fill my deck to 100", or a commander, strategy, deck file or Moxfield link to build from. Builds in rounds: a candidate pool, then the user picks per role in card-picker, until the deck is a legal 100.
 ---
 
 # Building a deck in rounds
+
+`$SKILLS` below is the folder that holds the installed MTG skills, one level up
+from this file's folder (for example `~/.agents/skills`). Run commands from the
+user's project folder, so files under `decks/` land there. On Windows, call
+`python` (or `py`) when `python3` is missing.
 
 The user decides every card; your job is to put the right shortlist in front
 of them, one role at a time, and keep count. The build lives in files in
@@ -13,9 +19,9 @@ and rounds, `<name>.profile.md` holds the strategy. A build stops and resumes
 at any step: `status` says where it is.
 
 ```bash
-B=skills/deck-builder/scripts/build.py
-P=skills/score-card/scripts/deckprofile.py
-K=skills/card-picker/scripts/picker.py
+B=$SKILLS/deck-builder/scripts/build.py
+P=$SKILLS/score-card/scripts/deckprofile.py
+K=$SKILLS/card-picker/scripts/picker.py
 ```
 
 ## Flow

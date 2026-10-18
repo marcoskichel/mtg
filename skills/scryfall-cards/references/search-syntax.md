@@ -190,7 +190,7 @@ to a keyword:
 ## Recipes
 
 ```bash
-S=skills/scryfall-cards/scripts/scryfall.py
+S=$SKILLS/scryfall-cards/scripts/scryfall.py
 # vampires that fit Edgar Markov, up to 3 mana, sorted by EDH usage
 python3 $S search 'id<=rwb t:vampire mv<=3 f:commander' --order edhrec --limit 40
 # commanders with identity exactly Orzhov, paper only, no Backgrounds

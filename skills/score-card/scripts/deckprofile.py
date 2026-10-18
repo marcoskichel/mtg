@@ -58,7 +58,7 @@ def lock_path(profile):
 
 def read_profile(path):
     header, body_lines, in_header = {}, [], True
-    for ln in Path(path).read_text().splitlines(keepends=True):
+    for ln in Path(path).read_text(encoding="utf-8").splitlines(keepends=True):
         s = ln.strip()
         if in_header and s.startswith("//") and ":" in s:
             k, v = s[2:].split(":", 1)
@@ -73,7 +73,7 @@ def write_header(path, header):
     _, body = read_profile(path)
     keys = [k for k in HEADER_KEYS if k in header] + [k for k in header if k not in HEADER_KEYS]
     head = "".join(f"// {k}: {header[k]}\n" for k in keys)
-    Path(path).write_text(head + body)
+    Path(path).write_text(head + body, encoding="utf-8")
 
 
 def _multiset(lines):
@@ -210,12 +210,12 @@ def format_facts(f):
 
 
 def _read_deck(path):
-    return moxfield.parse_deck(Path(path).read_text())
+    return moxfield.parse_deck(Path(path).read_text(encoding="utf-8"))
 
 
 def _lock_lines(profile):
     lp = lock_path(profile)
-    return lp.read_text().splitlines() if lp.exists() else None
+    return lp.read_text(encoding="utf-8").splitlines() if lp.exists() else None
 
 
 def _deck_of(profile, header):
@@ -318,7 +318,7 @@ def cmd_new(args):
         header = _deck_header(args.deck, out, boards, meta, f)
         if args.bracket:
             header["bracket"] = str(args.bracket)
-        lock_path(out).write_text("\n".join(deck_lines(boards)) + "\n")
+        lock_path(out).write_text("\n".join(deck_lines(boards)) + "\n", encoding="utf-8")
         intro = ""
     else:
         header = {"bracket": str(args.bracket), "reviewed": time.strftime("%Y-%m-%d")}
@@ -329,7 +329,7 @@ def cmd_new(args):
         intro = f"\nStrategy: {args.strategy}\n" if args.strategy else ""
         missing = []
     out.write_text("".join(f"// {k}: {v}\n" for k, v in header.items())
-                   + intro + STRATEGY_SKELETON)
+                   + intro + STRATEGY_SKELETON, encoding="utf-8")
     print(f"wrote {out} — fill in the strategy sections, then run: deckprofile.py stamp {out}")
     return 1 if missing else 0
 
@@ -352,7 +352,7 @@ def cmd_stamp(args):
         header["cards-at-write"] = str(sum(int(ln.split(" ", 1)[0]) for ln in lines))
         if str(meta.get("bracket", "")).strip():
             header["bracket"] = str(meta["bracket"]).strip()
-        lock_path(profile).write_text("\n".join(lines) + "\n")
+        lock_path(profile).write_text("\n".join(lines) + "\n", encoding="utf-8")
     write_header(profile, header)
     print(f"stamped {profile}")
     return 0
@@ -396,4 +396,7 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    # Card names are Unicode; Windows would otherwise use its legacy code page.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")
     sys.exit(main())

@@ -5,13 +5,18 @@ description: Use when you need Commander popularity or context data for a card o
 
 # EDHREC data
 
+`$SKILLS` below is the folder that holds the installed MTG skills, one level up
+from this file's folder (for example `~/.agents/skills`). Run commands from the
+user's project folder, so files under `decks/` land there. On Windows, call
+`python` (or `py`) when `python3` is missing.
+
 EDHREC has no public API. `json.edhrec.com/pages/<path>.json` is what the site
 loads. It counts decks people uploaded: it measures **popularity, not power**.
 A card in many decks is well supported, not necessarily strong; precon cards
 are inflated because every precon list counts.
 
 ```bash
-E=skills/edhrec/scripts/edhrec.py
+E=$SKILLS/edhrec/scripts/edhrec.py
 python3 $E card "Blood Artist" "Sol Ring"            # play rate, salt, top commanders
 python3 $E card -d decks/markov-gang.txt
 python3 $E commander "Edgar Markov"
@@ -22,7 +27,7 @@ python3 $E partners "Tymna the Weaver"
 
 `--json` on every subcommand gives `{path, fetched, data}` (`card` gives a list
 of those, each with `name`); `data` is `null` when EDHREC has no page. `--ttl 0` fetches fresh (default cache 24h,
-`~/.cache/mtg-skills/edhrec/`). Every output says when the data was fetched.
+`~/.cache/mtg-$SKILLS/edhrec/`). Every output says when the data was fetched.
 
 ## What the numbers mean
 
