@@ -1,6 +1,6 @@
 # MTG workspace
 
-Commander deck tooling. Each skill under `skills/` owns one job: `scryfall-cards` reads cards (text, search, printings, rulings), `card-finder` finds cards by what they do (Scryfall oracle tags, every result checked against its text), `ligamagic-preco` prices them in BRL, `moxfield-deck` keeps a local decklist as source of truth and syncs it to moxfield.com.
+Commander deck tooling. Each skill under `skills/` owns one job: `scryfall-cards` reads cards (text, search, printings, rulings), `card-finder` finds cards by what they do (Scryfall oracle tags, every result checked against its text), `ligamagic-preco` prices them in BRL, `moxfield-deck` keeps a local decklist as source of truth and syncs it to moxfield.com, `card-picker` puts cards in front of the user in the browser so they pick and the answer returns as JSON.
 
 ## Card text comes from the API, never from memory
 
