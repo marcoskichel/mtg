@@ -310,5 +310,42 @@ class JsonEnvelopeTest(CliTest):
         self.assertIsNone(json.loads(out)["data"])
 
 
+CMDR_CARDS_PAGE = {"container": {"json_dict": {"cardlists": [
+    {"header": "Top Cards", "tag": "topcards", "cardviews": [
+        {"name": "Captivating Vampire", "num_decks": 42797, "potential_decks": 51928,
+         "synergy": 0.7165},
+        {"name": "Sol Ring", "num_decks": 50000, "potential_decks": 51928, "synergy": 0.02}]},
+    {"header": "Creatures", "tag": "creatures", "cardviews": [
+        {"name": "Captivating Vampire", "num_decks": 42797, "potential_decks": 51928,
+         "synergy": 0.7165},
+        {"name": "Bloodghast", "num_decks": 9000, "potential_decks": 0, "synergy": 0.1}]}]}}}
+
+AVG_PAGE = {"creature": 33, "land": 36,
+            "deck": {"commander": ["Edgar Markov"],
+                     "cards": {"Artifact": [["Sol Ring", 1], ["Arcane Signet", 1]],
+                               "Land": [["Swamp", 8], ["Command Tower", 1]]}}}
+
+
+class CommanderCardsTest(unittest.TestCase):
+    def test_dedupes_and_computes_inclusion(self):
+        rows = edhrec.commander_cards(CMDR_CARDS_PAGE)
+        names = [r["name"] for r in rows]
+        self.assertEqual(names, ["Captivating Vampire", "Sol Ring", "Bloodghast"])
+        self.assertAlmostEqual(rows[0]["inclusion"], 42797 / 51928)
+        self.assertEqual(rows[0]["lists"], ["Top Cards", "Creatures"])
+        self.assertIsNone(rows[2]["inclusion"])
+
+    def test_average_deck(self):
+        avg = edhrec.average_deck(AVG_PAGE)
+        self.assertEqual(avg["commanders"], ["Edgar Markov"])
+        self.assertIn((8, "Swamp"), avg["cards"])
+        self.assertEqual(avg["lands"], 9)
+        self.assertEqual(len(avg["cards"]), 4)
+
+    def test_average_deck_missing(self):
+        self.assertIsNone(edhrec.average_deck(None))
+        self.assertIsNone(edhrec.average_deck({"header": "x"}))
+
+
 if __name__ == "__main__":
     unittest.main()

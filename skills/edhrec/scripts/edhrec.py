@@ -196,6 +196,43 @@ def commander_stats(page):
     }
 
 
+def commander_cards(page):
+    """Every card listed on a commander page, once, with this commander's numbers.
+
+    inclusion = share of the commander's decks that play the card (None when
+    EDHREC gives no denominator); lists = the page sections it appears in.
+    """
+    rows, seen = [], {}
+    for cl in _json_dict(page).get("cardlists") or []:
+        for v in cl.get("cardviews") or []:
+            name = v.get("name")
+            if not name:
+                continue
+            if name in seen:
+                seen[name]["lists"].append(cl.get("header"))
+                continue
+            decks, potential = v.get("num_decks"), v.get("potential_decks")
+            row = {"name": name, "decks": decks, "synergy": v.get("synergy"),
+                   "inclusion": decks / potential if decks is not None and potential else None,
+                   "lists": [cl.get("header")]}
+            seen[name] = row
+            rows.append(row)
+    return rows
+
+
+def average_deck(page):
+    """{commanders, cards: [(qty, name)], lands} from an average-decks page, or None."""
+    deck = (page or {}).get("deck")
+    if not isinstance(deck, dict) or not deck.get("cards"):
+        return None
+    cards, lands = [], 0
+    for kind, entries in deck["cards"].items():
+        for name, qty in entries:
+            cards.append((qty, name))
+            if kind.lower().startswith("land"):
+                lands += qty
+    return {"commanders": list(deck.get("commander") or []), "cards": cards, "lands": lands}
+
 def _envelope(path, fetched, data):
     """The one --json shape every subcommand uses; data is None when the page is missing."""
     return {"path": path, "fetched": fetched, "data": data}
