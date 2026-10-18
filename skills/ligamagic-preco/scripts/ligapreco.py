@@ -151,12 +151,16 @@ def parse_cockatrice(text):
     return sections
 
 
+def header_key(line):
+    """'// Commander', 'Commander:' -> 'commander'. Moxfield files mark sections with //."""
+    return line.strip().lstrip("/").strip().rstrip(":").lower()
+
+
 def parse_text(text):
     sections = {k: [] for k in SECTIONS}
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
-    has_header = any(ln.strip().rstrip(":").lower() in SECTION_HEADERS
-                     for ln in lines)
+    has_header = any(header_key(ln) in SECTION_HEADERS for ln in lines)
     has_sb_prefix = any(SB_PREFIX_RE.match(ln) for ln in lines)
 
     current = "main"
@@ -170,13 +174,12 @@ def parse_text(text):
         if not stripped:
             blank_run += 1
             continue
-        if stripped.startswith("//") or stripped.startswith("#"):
-            continue
-
-        key = stripped.rstrip(":").lower()
+        key = header_key(stripped)
         if key in SECTION_HEADERS:
             current = SECTION_HEADERS[key]
             blank_run = 0
+            continue
+        if stripped.startswith("//") or stripped.startswith("#"):
             continue
         # Linha "About"/"Name ..." do export do Arena.
         if not LINE_RE.match(stripped) and not SB_PREFIX_RE.match(stripped):
