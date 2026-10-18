@@ -4,6 +4,7 @@ __pycache__/
 # Your decks and deck-builder work files stay local
 decks/*
 !decks/.gitkeep
+cards/
 
 # Local agent state
 .claude/worktrees/

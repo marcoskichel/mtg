@@ -18,6 +18,7 @@ import argparse
 import hashlib
 import hmac
 import json
+import mimetypes
 import os
 import re
 import secrets
@@ -54,6 +55,8 @@ BROWSER_FRESH = 4
 IDLE_EXIT = 15 * 60
 SYMBOLOGY_MAX_AGE = 30 * 24 * 3600
 IMAGE_HOSTS = ("cards.scryfall.io", "svgs.scryfall.io")
+# A custom card's picture is a local file; only these are ever read from disk.
+LOCAL_IMAGE_TYPES = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 SCRYFALL_API = "https://api.scryfall.com/"
 
 EXIT_OK, EXIT_INPUT, EXIT_SERVER, EXIT_TIMEOUT, EXIT_CANCEL = 0, 2, 3, 124, 130
@@ -616,11 +619,20 @@ class Handler(BaseHTTPRequestHandler):
         if not m or not re.fullmatch(r"[0-9a-f-]{36}", card_id) or int(m.group(1)) >= len(urls):
             return self.send(HTTPStatus.NOT_FOUND, {"error": "no such image"})
         n = int(m.group(1))
+        ctype = "image/jpeg"
         try:
-            data = cached_fetch(urls[n], CACHE_DIR / "cards" / f"{card_id}-{n}.jpg")
+            if urls[n].startswith("file:"):
+                # A custom card's own picture (scryfall-cards custom cards file).
+                path = Path(urllib.request.url2pathname(urllib.parse.urlsplit(urls[n]).path))
+                if path.suffix.lower() not in LOCAL_IMAGE_TYPES:
+                    raise ValueError(f"not an image file: {path.name}")
+                data = path.read_bytes()
+                ctype = mimetypes.guess_type(path.name)[0] or ctype
+            else:
+                data = cached_fetch(urls[n], CACHE_DIR / "cards" / f"{card_id}-{n}.jpg")
         except (OSError, ValueError, urllib.error.URLError) as exc:
             return self.send(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
-        return self.send(HTTPStatus.OK, data, "image/jpeg", cache=True)
+        return self.send(HTTPStatus.OK, data, ctype, cache=True)
 
     def set_icon(self, name):
         m = re.fullmatch(r"([0-9a-z]{2,8})\.svg", name)

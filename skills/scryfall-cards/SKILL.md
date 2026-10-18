@@ -1,7 +1,7 @@
 ---
 name: scryfall-cards
 description: >-
-  Use when you need a Magic card's oracle text, cost, type, legality or rulings, when evaluating or building a deck and you need to read the cards, when someone asks "what does card X do", "what sets was it printed in", or when the question involves Scryfall search syntax (c: t: o: mv: f:). Applies even when the request doesn't mention Scryfall or gives the card name in Portuguese.
+  Use when you need a Magic card's oracle text, cost, type, legality or rulings, when evaluating or building a deck and you need to read the cards, when someone asks "what does card X do", "what sets was it printed in", or when the question involves Scryfall search syntax (c: t: o: mv: f:). Applies even when the request doesn't mention Scryfall or gives the card name in Portuguese, and when the user has a card of their own (custom, homebrew, MTG.Design) to add or read.
 ---
 
 # Magic cards through Scryfall
@@ -60,8 +60,38 @@ user:
 - `NOT FOUND`. A name nothing resolved. Ask the user, don't guess. When fuzzy
   returned a card that doesn't look like the request, the script rejects it
   and says which one it was.
+- `Custom cards, not on Scryfall`. Names served from the custom cards file
+  (see below), not from the API.
 
 Exit code 1 in any of these cases.
+
+## Custom cards
+
+A card that exists only on the user's side (a homebrew commander, an
+MTG.Design card) goes in `cards/custom.json` in the project folder, or in the
+file `MTG_CUSTOM_CARDS` names. Every skill reads it before calling Scryfall, so
+the card resolves by name in decks, profiles, validation and the picker.
+
+```json
+{"cards": [{
+  "name": "Giovanni, Suporte Lateral",
+  "mana_cost": "{1}{W}{B}",
+  "type_line": "Legendary Creature — Human Advisor",
+  "power": "1", "toughness": "3", "rarity": "rare",
+  "oracle_text": "{1}{W/B}, {T}: Choose one —\n• ...",
+  "image": "giovanni.png"
+}]}
+```
+
+`name` and `type_line` are required; any other Scryfall field may be given.
+Missing ones are derived: `colors` and `cmc` from the cost, `color_identity`
+from the mana symbols in cost and text. `image` is a local file, relative to
+the JSON file. Write `oracle_text` in English Oracle wording, translating the
+card when it is printed in another language, and read it back with
+`card "<name>"` (output says `[custom card]`) before using it.
+
+A custom card has no legality, printings, rulings or price: validation and
+pricing report it and leave it out.
 
 ## Double-faced, split and adventure cards
 

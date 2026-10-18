@@ -588,5 +588,62 @@ class PricesTest(unittest.TestCase):
             self.assertEqual(build.prices(["Sol Ring"]), {"Sol Ring": None})
 
 
+
+def custom(name, ci):
+    c = sc(name, ci, "Legendary Creature — Human Advisor", cmc=3)
+    c["custom"], c["legalities"] = True, {}
+    return c
+
+
+def pdh(name, ci, legal, type_line="Creature"):
+    c = sc(name, ci, type_line)
+    c["legalities"] = {"commander": "legal", "paupercommander": legal}
+    return c
+
+
+PDH_CARDS = {c["name"]: c for c in [
+    custom("Giovanni, Suporte Lateral", "WB"),
+    pdh("Tithe Drinker", "WB", "legal"),
+    pdh("Vindicate", "WB", "not_legal", "Sorcery"),
+]}
+
+PDH_DECK = """// Name: Gio
+// Format: paupercommander
+// Bracket: 2
+
+// Commander
+1 Giovanni, Suporte Lateral
+"""
+
+
+class CustomPauperTest(Base):
+    def setUp(self):
+        super().setUp()
+        self.deck.write_text(PDH_DECK)
+        p = mock.patch.dict(CARDS, PDH_CARDS)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_init_skips_edhrec_for_a_custom_commander(self):
+        with mock.patch.object(build.edhrec, "fetch") as fetch:
+            code, out, err = self.run_cli(["init", str(self.deck)], PAGES)
+            self.assertFalse(fetch.called)
+        self.assertEqual(code, 0, err)
+        st = self.state()
+        self.assertEqual((st["format"], st["custom_commander"], st["identity"]),
+                         ("paupercommander", True, "WB"))
+        self.assertEqual(st["targets"], build.TEMPLATE)
+        self.assertIn("custom commander", err)
+
+    def test_pool_filters_by_the_deck_format(self):
+        self.run_cli(["init", str(self.deck)])
+        extra = self.dir / "extra.txt"
+        extra.write_text("Tithe Drinker\nVindicate\n")
+        code, out, err = self.run_cli(["pool", str(self.deck), "--extra", str(extra)])
+        self.assertEqual(code, 0, err)
+        self.assertEqual([c.name for c in self.boards()["maybeboard"]], ["Tithe Drinker"])
+        self.assertRegex(out, r"not legal: Vindicate")
+        self.assertNotIn("EDHREC has no commander page", err)
+
 if __name__ == "__main__":
     unittest.main()

@@ -22,10 +22,15 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scryfall-cards" / "scripts"))
+import scryfall  # noqa: E402
 
 MOX_API = "https://api2.moxfield.com/v3/decks/all/"
 SCRY_COLLECTION = "https://api.scryfall.com/cards/collection"
 SCRY_NAMED = "https://api.scryfall.com/cards/named"
+SCRY_SEARCH = "https://api.scryfall.com/cards/search"
 UA_BROWSER = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/130.0 Safari/537.36")
 UA_SCRY = "mtg-skills/0.1 (moxfield-deck)"
@@ -48,6 +53,8 @@ SECTION_HEADERS = {
     "maybeboard": "maybeboard", "maybe": "maybeboard", "considering": "maybeboard",
     "considerando": "maybeboard",
 }
+# Formats with a commander, a 100-card singleton deck and color identity.
+COMMANDER_FORMATS = ("commander", "paupercommander")
 # Counts as "deck" toward the 100 total: commander + companion + main.
 # Sideboard on Moxfield is an auxiliary list; maybeboard is under consideration.
 DECK_BOARDS = ("commanders", "companions", "mainboard")
@@ -355,9 +362,22 @@ class Scryfall:
         status, data = _get_json(url, {"User-Agent": UA_SCRY, "Accept": "application/json"})
         return data if status == 200 else None
 
+    def pdh_commander(self, name):
+        """True when Scryfall lets the card lead a Pauper Commander deck."""
+        url = SCRY_SEARCH + "?" + urllib.parse.urlencode({"q": '!"%s" is:paupercommander' % name})
+        time.sleep(self.delay)
+        status, data = _get_json(url, {"User-Agent": UA_SCRY, "Accept": "application/json"})
+        return status == 200 and bool(data.get("data"))
+
     def resolve(self, names):
-        """-> {requested_name: card_json | None}. Batches of 75; front-face fallback, then fuzzy."""
+        """-> {requested_name: card_json | None}. Custom cards first, then batches
+        of 75; front-face fallback, then fuzzy."""
         out = {}
+        custom = scryfall.load_custom_cards()
+        for n in dict.fromkeys(names):
+            hit = custom.get(scryfall.fold(scryfall.front_face(n)))
+            if hit and n not in self.cache:
+                self.cache[n] = hit
         pending = [n for n in dict.fromkeys(names) if n not in self.cache]
         for i in range(0, len(pending), 75):
             chunk = pending[i:i + 75]
@@ -414,7 +434,7 @@ def validate(boards, fmt="commander", scry=None, out=sys.stderr):
     total = sum(c.qty for c in deck_cards)
     cmds = boards["commanders"]
 
-    if fmt == "commander":
+    if fmt in COMMANDER_FORMATS:
         if not cmds:
             problems.append("no commander: put it under `// Commander`, otherwise Moxfield "
                             "dumps everything into the mainboard and the deck ends up with 101")
@@ -443,6 +463,11 @@ def validate(boards, fmt="commander", scry=None, out=sys.stderr):
     for c in unresolved:
         problems.append("name not found on Scryfall (line %d, %s): %s"
                         % (c.line, BOARD_TITLE[c.board], c.name))
+    custom = sorted({resolved[c.name]["name"] for c in all_cards
+                     if scryfall.is_custom(resolved.get(c.name))})
+    if custom:
+        warnings.append("custom cards, legality and commander eligibility not checked: "
+                        + ", ".join(custom))
     renamed = [(c, resolved[c.name]["name"]) for c in all_cards
                if resolved.get(c.name) and fold(resolved[c.name]["name"]) != c.key
                and fold(resolved[c.name]["name"].split(" // ")[0]) != c.key]
@@ -455,13 +480,19 @@ def validate(boards, fmt="commander", scry=None, out=sys.stderr):
         if sc and not any_number_allowed(sc):
             problems.append("duplicate (%dx) not allowed: %s" % (sum(x.qty for x in v), v[0].name))
 
-    if fmt == "commander" and cmds:
+    if fmt in COMMANDER_FORMATS and cmds:
         ci = set()
         for c in cmds:
             sc = resolved.get(c.name)
             if not sc:
                 continue
-            if not can_be_commander(sc):
+            if scryfall.is_custom(sc):
+                pass
+            elif fmt == "paupercommander":
+                if not scry.pdh_commander(sc["name"]):
+                    problems.append("cannot lead a Pauper Commander deck (needs a creature "
+                                    "printed at uncommon): %s" % c.name)
+            elif not can_be_commander(sc):
                 problems.append("cannot be a commander: %s (%s)" % (c.name, sc.get("type_line")))
             ci |= card_colors(sc)
         if len(cmds) == 2:
@@ -482,9 +513,12 @@ def validate(boards, fmt="commander", scry=None, out=sys.stderr):
     gc = []
     for c in deck_cards:
         sc = resolved.get(c.name)
-        if not sc:
+        if not sc or scryfall.is_custom(sc):
             continue
         leg = (sc.get("legalities") or {}).get(fmt)
+        # A Pauper Commander commander is usually an uncommon: not legal in the 99.
+        if fmt == "paupercommander" and c.board == "commanders":
+            continue
         if leg in ("banned", "not_legal"):
             problems.append("%s in %s: %s" % (leg, fmt, c.name))
         elif leg == "restricted":

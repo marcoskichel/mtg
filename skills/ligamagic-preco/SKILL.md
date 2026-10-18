@@ -51,6 +51,8 @@ O total sai no stdout junto da tabela por seção; o relatório vai no **stderr*
 a parte que precisa chegar ao usuário — é onde estão as cartas sem estoque, as não
 resolvidas e as mais caras. Código de saída 1 quando alguma carta ficou sem preço
 por nome não resolvido ou por falha de rede; nos dois casos o total está baixo.
+Carta do arquivo de cartas custom (`scryfall-cards`) sai como `CARTA CUSTOM`,
+fora do total e sem afetar o código de saída: não existe para comprar.
 
 ## `0.00` significa sem estoque, não grátis
 

@@ -2,7 +2,9 @@
 
 import io
 import json
+import os
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -352,6 +354,79 @@ class Retry(unittest.TestCase):
         self.assertTrue(any(k.lower() == "user-agent" for k in seen))
         self.assertTrue(any(k.lower() == "accept" for k in seen))
 
+
+
+GIOVANNI = {
+    "name": "Giovanni, Suporte Lateral", "mana_cost": "{1}{W}{B}",
+    "type_line": "Legendary Creature — Human Advisor", "power": "1", "toughness": "3",
+    "oracle_text": "{1}{W/B}, {T}: Choose one —\n• Another target creature gains vigilance.",
+    "image": "giovanni.png",
+}
+
+
+class CustomCards(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.file = Path(self.tmp.name) / "custom.json"
+        env = mock.patch.dict(os.environ, {scryfall.CUSTOM_ENV: str(self.file)})
+        env.start()
+        self.addCleanup(env.stop)
+        scryfall._custom_cache.clear()
+        self.addCleanup(scryfall._custom_cache.clear)
+
+    def write(self, data):
+        self.file.write_text(json.dumps(data), encoding="utf-8")
+
+    def test_fields_are_derived(self):
+        c = scryfall.custom_card(dict(GIOVANNI), Path("/x"))
+        self.assertEqual(c["cmc"], 3.0)
+        self.assertEqual(c["colors"], ["W", "B"])
+        self.assertEqual(c["color_identity"], ["W", "B"])
+        self.assertTrue(c["custom"])
+        self.assertRegex(c["id"], r"^[0-9a-f-]{36}$")
+        self.assertEqual(c["id"], scryfall.custom_card(dict(GIOVANNI))["id"])
+        self.assertTrue(c["image_uris"]["normal"].startswith("file:"))
+        self.assertTrue(c["image_uris"]["normal"].endswith("giovanni.png"))
+
+    def test_identity_counts_symbols_in_rules_text(self):
+        c = scryfall.custom_card({"name": "X", "type_line": "Artifact", "mana_cost": "{2}",
+                                  "oracle_text": "{T}: Add {G}."})
+        self.assertEqual(c["colors"], [])
+        self.assertEqual(c["color_identity"], ["G"])
+
+    def test_resolve_finds_custom_without_the_api(self):
+        self.write({"cards": [GIOVANNI]})
+        bolt = card("Lightning Bolt")
+        fake = FakeHTTP([("/cards/collection", collection([bolt]))])
+        calls = fake.calls
+        report = scryfall.Report()
+        with mock.patch.object(scryfall, "_http", fake), mock.patch.object(scryfall.time, "sleep"):
+            found, _ = scryfall.resolve_names(["giovanni, suporte lateral", "Lightning Bolt"],
+                                              report)
+        self.assertTrue(found["giovanni, suporte lateral"]["custom"])
+        self.assertEqual(found["lightning bolt"]["name"], "Lightning Bolt")
+        body = json.loads(calls[0][2])
+        self.assertEqual([i["name"] for i in body["identifiers"]], ["Lightning Bolt"])
+        self.assertEqual(report.custom, ["Giovanni, Suporte Lateral"])
+        self.assertFalse(report.missing)
+
+    def test_list_file_and_no_file(self):
+        self.write([GIOVANNI])
+        self.assertIn("giovanni, suporte lateral", scryfall.load_custom_cards())
+        scryfall._custom_cache.clear()
+        self.file.unlink()
+        self.assertEqual(scryfall.load_custom_cards(), {})
+
+    def test_bad_file_stops_with_the_path(self):
+        self.write([{"name": "No type"}])
+        with self.assertRaises(SystemExit) as ctx:
+            scryfall.load_custom_cards()
+        self.assertIn(str(self.file), str(ctx.exception))
+
+    def test_card_output_marks_custom(self):
+        c = scryfall.custom_card(dict(GIOVANNI))
+        self.assertIn("[custom card]", scryfall.format_card(c, []))
 
 if __name__ == "__main__":
     unittest.main()

@@ -273,5 +273,69 @@ class ReadCardList(unittest.TestCase):
                                                    (2, "Swamp")])
 
 
+
+class PauperCommander(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        env = mock.patch.dict(os.environ, {"MTG_CUSTOM_CARDS": os.path.join(self.tmp.name, "c.json")})
+        env.start()
+        self.addCleanup(env.stop)
+        mx.scryfall._custom_cache.clear()
+        self.addCleanup(mx.scryfall._custom_cache.clear)
+
+    def pdh(self, name, type_line="Creature", ci=(), legal="legal"):
+        c = card(name, type_line, ci)
+        c["legalities"] = {"commander": "legal", "paupercommander": legal}
+        return c
+
+    def run_validate(self, cmds, main, db, pdh_ok=()):
+        scry = FakeScry(db)
+        scry.pdh_commander = lambda name: name in pdh_ok
+        boards = {b: [] for b in mx.BOARDS}
+        boards["commanders"] = [mx.Card(1, n, "commanders") for n in cmds]
+        boards["mainboard"] = [mx.Card(q, n, "mainboard") for q, n in main]
+        out = io.StringIO()
+        return mx.validate(boards, "paupercommander", scry, out=out), out.getvalue()
+
+    def test_uncommon_commander_and_commons_pass(self):
+        db = {"Tithe Drinker": self.pdh("Tithe Drinker", ci="WB", legal="not_legal"),
+              "Swamp": self.pdh("Swamp", "Basic Land — Swamp")}
+        ok, out = self.run_validate(["Tithe Drinker"], [(99, "Swamp")], db, {"Tithe Drinker"})
+        self.assertTrue(ok, out)
+
+    def test_structure_identity_and_legality_are_checked(self):
+        db = {"Sol Ring": self.pdh("Sol Ring", "Artifact", legal="not_legal"),
+              "Counterspell": self.pdh("Counterspell", "Instant", "U"),
+              "Rare Guy": self.pdh("Rare Guy", "Legendary Creature", "B", legal="not_legal")}
+        ok, out = self.run_validate(["Rare Guy"], [(1, "Sol Ring"), (1, "Counterspell")], db)
+        self.assertFalse(ok)
+        for frag in ("cannot lead a Pauper Commander deck", "deck has 3 cards",
+                     "not_legal in paupercommander: Sol Ring",
+                     "outside color identity B: Counterspell"):
+            self.assertIn(frag, out)
+
+    def test_custom_commander_is_trusted_with_a_warning(self):
+        gio = mx.scryfall.custom_card({"name": "Giovanni", "mana_cost": "{1}{W}{B}",
+                                       "type_line": "Legendary Creature — Human"})
+        db = {"Giovanni": gio, "Swamp": self.pdh("Swamp", "Basic Land — Swamp"),
+              "Counterspell": self.pdh("Counterspell", "Instant", "U")}
+        ok, out = self.run_validate(["Giovanni"], [(98, "Swamp"), (1, "Counterspell")], db)
+        self.assertFalse(ok)
+        self.assertIn("outside color identity BW: Counterspell", out)
+        self.assertIn("custom cards, legality and commander eligibility not checked: Giovanni", out)
+        self.assertNotIn("cannot lead", out)
+
+    def test_resolve_uses_custom_file_before_the_api(self):
+        with open(os.environ["MTG_CUSTOM_CARDS"], "w", encoding="utf-8") as fh:
+            json.dump([{"name": "Giovanni", "type_line": "Legendary Creature"}], fh)
+        scry = mx.Scryfall(delay=0)
+        with mock.patch.object(scry, "_post", return_value={"data": []}) as post, \
+                mock.patch.object(scry, "_named_fuzzy", return_value=None):
+            got = scry.resolve(["Giovanni", "Nope"])
+        self.assertTrue(got["Giovanni"]["custom"])
+        self.assertIsNone(got["Nope"])
+        self.assertEqual(post.call_args[0][0], [{"name": "Nope"}])
+
 if __name__ == "__main__":
     unittest.main()

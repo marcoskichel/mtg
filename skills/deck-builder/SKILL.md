@@ -29,6 +29,10 @@ K=$SKILLS/card-picker/scripts/picker.py
 1. **Start the deck.** Get to a deck file with a `// Commander` section.
    - Commander given: write `decks/<slug>.txt` with `// Name:`,
      `// Format: commander` and `// Commander` holding it (two lines for a pair).
+     Pauper Commander takes `// Format: paupercommander`; the pool then keeps
+     only cards legal there.
+   - A commander of the user's own: add it to the custom cards file first
+     (`scryfall-cards`, Custom cards), then write the deck file as above.
    - Deck file: use it; its Mainboard is already locked in.
    - Moxfield link: `moxfield-deck` pull into `decks/`.
    - Strategy only: `edhrec.py theme <theme> --colors <c>`, read the top
@@ -46,7 +50,8 @@ K=$SKILLS/card-picker/scripts/picker.py
    `targets` in `<name>.build.json`. Done when the user has confirmed both.
 
 3. **Pool.** Search for what the Plan needs beyond EDHREC's lists with
-   `card-finder` (one `find --json` per theme or role the profile names),
+   `card-finder` (one `find --json` per theme or role the profile names, with
+   `f:<format>` from the deck file),
    collect the names in a file, then `$B pool <deck> --extra <file>`. It adds
    EDHREC's cards for this commander, the average deck and your searches,
    minus off-identity, banned, over-budget and (bracket 1–2) game changer
@@ -108,5 +113,8 @@ Targets, the template and how `init` adjusts them: `references/template.md`.
 - **Stamp means reviewed.** `$P stamp` says the strategy still fits the list;
   run it only after rereading the profile against the round's picks (step
   4.4), never as a reflex to clear `STALE`.
+- **A custom commander has no EDHREC data.** `init` uses the template targets
+  and `pool` adds only your searches and the Maybeboard, so search every role
+  and theme the Plan names. Moxfield can't hold the card: skip the upload offer.
 - **A misspelled commander** is fixed by `init`: it writes Scryfall's name
   back to the deck file, and EDHREC is read under that name.

@@ -13,10 +13,12 @@ import argparse
 import difflib
 import html
 import json
+import os
 import re
 import sys
 import time
 import unicodedata
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -33,6 +35,12 @@ PAGE_SIZE = 175
 # "Lightnig Bolt" x "Lightning Bolt" = 0.96; "Raio" x "Samurai of the Pale
 # Curtain" = 0.26. 0.75 separates a typo from an API guess.
 FUZZY_MIN_RATIO = 0.75
+# Cards that exist only on the user's side (homebrew, MTG.Design): a JSON list
+# of Scryfall-shaped cards, read before any API call. Path relative to the
+# folder the agent runs in; the environment variable overrides it.
+CUSTOM_ENV = "MTG_CUSTOM_CARDS"
+CUSTOM_DEFAULT = Path("cards") / "custom.json"
+MANA_SYMBOL_RE = re.compile(r"\{([^}]+)\}")
 
 SECTION_HEADERS = {
     "deck": "main", "main": "main", "maindeck": "main", "main deck": "main",
@@ -58,7 +66,7 @@ CARD_FIELDS = (
     "oracle_text", "power", "toughness", "loyalty", "defense", "colors",
     "color_identity", "keywords", "legalities", "set", "set_name",
     "collector_number", "rarity", "released_at", "prices", "finishes", "promo",
-    "digital", "image_uris", "scryfall_uri", "rulings_uri", "prints_search_uri",
+    "digital", "image_uris", "scryfall_uri", "rulings_uri", "prints_search_uri", "custom",
 )
 FACE_FIELDS = ("name", "mana_cost", "type_line", "oracle_text", "power",
                "toughness", "loyalty", "defense", "colors", "image_uris")
@@ -258,18 +266,117 @@ def _index_cards(cards):
     return idx
 
 
+# --------------------------------------------------------------------------- #
+# custom cards
+# --------------------------------------------------------------------------- #
+
+def custom_cards_path():
+    env = os.environ.get(CUSTOM_ENV)
+    return Path(env) if env else CUSTOM_DEFAULT
+
+
+def _symbol_colors(text):
+    """WUBRG letters in the mana symbols of a cost or rules text ({W/B} -> W, B)."""
+    found = set()
+    for sym in MANA_SYMBOL_RE.findall(text or ""):
+        found |= {c for c in sym.upper().split("/") if c in "WUBRG"}
+    return [c for c in "WUBRG" if c in found]
+
+
+def _mana_value(cost):
+    total = 0
+    for sym in MANA_SYMBOL_RE.findall(cost or ""):
+        if sym.isdigit():
+            total += int(sym)
+        elif sym.upper() not in ("X", "Y", "Z"):
+            # {2/W} counts 2, any other symbol (hybrid, phyrexian) counts 1
+            total += int(sym.split("/")[0]) if sym.split("/")[0].isdigit() else 1
+    return float(total)
+
+
+def custom_card(raw, base=None):
+    """A user's card -> a Scryfall-shaped card. Missing fields are derived:
+    colors from the cost, identity from cost + text, mana value from the cost.
+    'image' is a picture of the card: a local file, relative to base."""
+    if not raw.get("name") or not raw.get("type_line"):
+        raise ValueError("a custom card needs at least 'name' and 'type_line'")
+    card = dict(raw)
+    cost = card.get("mana_cost") or ""
+    card.setdefault("object", "card")
+    # Same name, same id: a UUID like Scryfall's, so other tools take it as one.
+    card.setdefault("id", str(uuid.uuid5(uuid.NAMESPACE_URL, "custom-card:" + fold(card["name"]))))
+    image = card.pop("image", None)
+    if image and "image_uris" not in card:
+        path = Path(image).expanduser()
+        if not path.is_absolute() and base is not None:
+            path = Path(base) / path
+        card["image_uris"] = {"normal": path.resolve().as_uri()}
+    card.setdefault("layout", "normal")
+    card.setdefault("lang", "en")
+    card.setdefault("mana_cost", cost)
+    card.setdefault("cmc", _mana_value(cost))
+    card.setdefault("oracle_text", "")
+    card.setdefault("colors", _symbol_colors(cost))
+    card.setdefault("color_identity",
+                    _symbol_colors(cost + " " + (card.get("oracle_text") or "")))
+    card.setdefault("keywords", [])
+    card.setdefault("legalities", {})
+    card.setdefault("set", "custom")
+    card.setdefault("set_name", "Custom card")
+    card.setdefault("collector_number", "")
+    card.setdefault("rarity", "special")
+    card.setdefault("prices", {})
+    card["custom"] = True
+    return card
+
+
+_custom_cache = {}
+
+
+def load_custom_cards():
+    """{fold(name): card} from the custom cards file; {} when there is none."""
+    path = custom_cards_path()
+    key = str(path.resolve())
+    if key in _custom_cache:
+        return _custom_cache[key]
+    cards = {}
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            raws = data.get("cards") if isinstance(data, dict) else data
+            for raw in raws or []:
+                c = custom_card(raw, path.parent)
+                for k in {fold(c["name"]), fold(front_face(c["name"])),
+                          fold(c.get("printed_name") or "")} - {""}:
+                    cards.setdefault(k, c)
+        except (ValueError, AttributeError, TypeError) as exc:
+            raise SystemExit(f"custom cards file {path}: {exc}")
+    _custom_cache[key] = cards
+    return cards
+
+
+def is_custom(card):
+    return bool(card and card.get("custom"))
+
+
 def resolve_names(names, report):
     """Requested name -> card object, via /cards/collection + fallbacks.
 
-    Scryfall only matches the exact English name in the collection; 'A // B'
-    has to go as 'A'. Whatever is left tries an exact search on the printed
-    Portuguese name, then fuzzy (typos).
+    Custom cards (see load_custom_cards) win over Scryfall. Scryfall only
+    matches the exact English name in the collection; 'A // B' has to go as
+    'A'. Whatever is left tries an exact search on the printed Portuguese
+    name, then fuzzy (typos).
     """
     wanted = {}
     for n in names:
         wanted.setdefault(fold(front_face(n)), front_face(n))
     found = {}
-    keys = list(wanted)
+    custom = load_custom_cards()
+    for k in wanted:
+        if k in custom:
+            found[k] = custom[k]
+            report.custom.append(custom[k]["name"])
+    keys = [k for k in wanted if k not in found]
     for i in range(0, len(keys), COLLECTION_BATCH):
         chunk = keys[i:i + COLLECTION_BATCH]
         body = json.dumps({"identifiers": [{"name": wanted[k]} for k in chunk]})
@@ -328,9 +435,13 @@ class Report:
         self.renames = {}
         self.missing = {}
         self.warnings = []
+        self.custom = []
 
     def emit(self, out=None):
         out = out or sys.stderr
+        if self.custom:
+            print(f"Custom cards, not on Scryfall ({len(self.custom)}): "
+                  f"{', '.join(self.custom)}  [from {custom_cards_path()}]", file=out)
         if self.warnings:
             for w in self.warnings:
                 print(f"SCRYFALL WARNING: {w}", file=out)
@@ -375,7 +486,9 @@ def format_card(card, formats, rulings=None):
     lines = []
     name = card.get("name", "?")
     ci = "".join(card.get("color_identity") or []) or "colorless"
-    head = f"{name}  [{card.get('set', '').upper()} {card.get('collector_number', '')}]  identity: {ci}"
+    where = "custom card" if is_custom(card) else \
+        f"{card.get('set', '').upper()} {card.get('collector_number', '')}"
+    head = f"{name}  [{where}]  identity: {ci}"
     lines.append(head)
     lines.append("-" * min(len(head), 90))
     for face in faces_of(card):
@@ -389,7 +502,9 @@ def format_card(card, formats, rulings=None):
                      + (f"  {stats}" if stats else ""))
         for ln in (face.get("oracle_text") or "").split("\n"):
             lines.append(f"{ind}{ln}")
-    if formats:
+    if formats and is_custom(card):
+        lines.append("  legality: custom card, not checked")
+    elif formats:
         leg = card.get("legalities") or {}
         parts = [f"{f}: {leg.get(f, '?').replace('_', ' ')}" for f in formats]
         lines.append("  legality: " + ", ".join(parts))
