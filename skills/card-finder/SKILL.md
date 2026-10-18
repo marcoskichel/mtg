@@ -29,14 +29,20 @@ python3 $F find 'otag:sweeper-one-sided id<=wb f:commander mv<=5'
    `skills/scryfall-cards/references/search-syntax.md`. It covers commanders
    and partners, land cycles, Game Changers, price and release date, plus the
    traps: `id=wu` is "exactly W/U" but `id<=wu` and `commander:wu` are "fits
-   in W/U", and `usd<2` passes if any printing is under $2. Done when you can
-   write both down in one line each.
+   in W/U", and `usd<2` passes if any printing is under $2. A bare color with
+   no deck ("ramp in black") means what that color's deck can play:
+   `id<=b`, colorless cards included. `c:b` would add multicolor cards it
+   can't cast, and `c:b id<=b` drops Sol Ring and Cabal Coffers. Say which
+   reading you used in the totals. Done when you can write both down in one
+   line each.
 
 2. **Choose the tag.** Run `tags <words>` for the concept, then `tag <slug>` on
    the best hit to see its children. Pick the narrowest tag that still covers
    the whole trait: "exile-based creature removal" is `otag:removal-exile`
    together with `otag:removal-creature`, not plain `otag:removal`. A parent tag
-   matches every card under its children. When no tag fits, search the text
+   matches every card under its children, so a broad request ("ramp") takes
+   the parent, while "mana that stays" points at children like `mana-rock`
+   or `land-ramp` instead of `ritual`. When no tag fits, search the text
    (`o:"..."`, `o:/regex/`). Done when every part of
    the trait maps to a tag or to a text term.
 
@@ -56,13 +62,21 @@ python3 $F find 'otag:sweeper-one-sided id<=wb f:commander mv<=5'
    - **fits with a catch**: it does the job with a condition that matters
      (only hits mana value 3 or less, also hits your own creatures, costs
      life);
-   - **out**: the tag stretched, or it misses a constraint.
+   - **out**: the tag stretched, or it misses a constraint. Typical stretches:
+     the trait is a side effect of a card built for something else (Revel in
+     Riches makes Treasure but is a win condition), the output is restricted
+     (Master of Dark Rites' mana only casts certain spells), or the effect is
+     one-shot where the user wants lasting (a ritual is not a mana rock).
    For a double-faced card, read the face that does the job. Done when every
    card you're about to present has text you read in this session and a
    clause you can quote.
 
-5. **Report.** Put the verified cards in front of the user with `card-picker`,
-   not as a list in chat. Write them to a JSON file, best first, at most about
+5. **Report.** When the user asks for the best or a top N, the ranking is
+   `score-card`'s job: hand it the verified cards and follow its pool flow
+   (standalone, or against the deck's profile when there is a deck). It
+   grades each card and opens the picker with its verdicts, so skip the rest
+   of this step. Otherwise put the verified cards in front of the user with
+   `card-picker`, not as a list in chat. Write them to a JSON file, best first, at most about
    15; each `reason` quotes the clause that proves the fit and names the catch
    if there is one:
    `[{"name": "Fellwar Stone", "reason": "\"{T}: Add one mana of any color that a land an opponent controls could produce.\" Catch: depends on opponents' lands."}]`.
