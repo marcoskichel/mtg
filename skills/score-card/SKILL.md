@@ -1,6 +1,6 @@
 ---
 name: score-card
-description: Use when someone asks how good a Magic card is, whether it belongs in a deck, which of several cards is better, or wants a candidate list ranked — "is Blood Artist good", "should I play X in my Edgar deck", "rate these cards", "score this pool for my aristocrats deck", "is this a staple". Grades per factor with reasons, standalone or against a deck profile built from a deck file, a commander, or a strategy.
+description: Use when someone asks how good a Magic card is, whether it belongs in a deck, which of several cards is better, or wants a candidate list ranked — "is Blood Artist good", "should I play X in my Edgar deck", "rate these cards", "score this pool for my aristocrats deck", "is this a staple". Grades per factor with reasons, standalone or against a deck profile built from a deck file, a commander, or a strategy; shows the ranked cards in the card-picker page.
 ---
 
 # Scoring cards
@@ -16,6 +16,7 @@ S=skills/scryfall-cards/scripts/scryfall.py
 F=skills/card-finder/scripts/finder.py
 E=skills/edhrec/scripts/edhrec.py
 P=skills/score-card/scripts/deckprofile.py
+K=skills/card-picker/scripts/picker.py
 ```
 
 ## Pick the context
@@ -57,6 +58,9 @@ on every score.
 4. `$E card "<name>"` — play rate, salt, top commanders, themes.
 5. Grade each factor with the rubric, print the output block from
    `references/rubric.md`, flags first.
+6. Scoring several cards at once ("rate these", "which is better")? After the
+   blocks, show them side by side: `$K show --suggestions <file>` with the
+   verdict and the deciding grade as each `reason`, run in the background.
 
 ## A pool (dozens to hundreds of cards)
 
@@ -69,6 +73,19 @@ on every score.
 3. One line per survivor: `verdict  name — fit tag`.
 4. Full rubric block only for cards near the cut line, borderline
    `PLAYABLE`/`STRONG`, or when asked.
+5. Put the survivors in front of the user with `card-picker`, best verdict
+   first, at most about 15. Each `reason` is the verdict, the fit tag and any
+   flag: `"STRONG — free sac outlet, 1 mana"`,
+   `"WEAK — INFINITE COMBO RISK with Gravecrawler; Avoid forbids infinites"`.
+   - Filling slots: `$K pick --suggestions <file> --count <open slots or N-M>
+     --title "<the question>"`. Picked cards go to the deck through
+     `moxfield-deck`; a `note` overrides your ranking.
+   - Only ranking: `$K show --suggestions <file> --title "<the question>"`.
+
+   Run it in the background (it blocks until the user answers) and say in one
+   line that the picker is open. The dropped list and the one-line grades stay
+   in chat. A chat-only ranking is the fallback when the user asks for text or
+   the picker exits 3.
 
 ## Traps
 
