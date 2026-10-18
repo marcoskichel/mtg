@@ -11,4 +11,4 @@ python3 skills/scryfall-cards/scripts/scryfall.py card "Brash Taunter" "Edgar Ma
 python3 skills/scryfall-cards/scripts/scryfall.py card -d deck.txt
 ```
 
-The script batches a decklist, handles double-faced cards and Portuguese names, and prints renames and misses to stderr. Read `skills/scryfall-cards/SKILL.md` before searching with Scryfall syntax — an unknown keyword is silently dropped, not rejected.
+The script batches a decklist, handles double-faced cards and Portuguese names, and prints renames and misses to stderr. A card the user made lives in `cards/custom.json` and resolves the same way. Read `skills/scryfall-cards/SKILL.md` before searching with Scryfall syntax — an unknown keyword is silently dropped, not rejected.

@@ -23,6 +23,9 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scryfall-cards" / "scripts"))
+import scryfall  # noqa: E402
+
 SEARCH_API = "https://www.clubedaliga.com.br/api/cardsearch"
 PRICE_API = "https://www.ligamagic.com.br/ajax/cards/getEditions.php"
 REFERER = "https://www.ligamagic.com.br/"
@@ -148,12 +151,16 @@ def parse_cockatrice(text):
     return sections
 
 
+def header_key(line):
+    """'// Commander', 'Commander:' -> 'commander'. Moxfield files mark sections with //."""
+    return line.strip().lstrip("/").strip().rstrip(":").lower()
+
+
 def parse_text(text):
     sections = {k: [] for k in SECTIONS}
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
-    has_header = any(ln.strip().rstrip(":").lower() in SECTION_HEADERS
-                     for ln in lines)
+    has_header = any(header_key(ln) in SECTION_HEADERS for ln in lines)
     has_sb_prefix = any(SB_PREFIX_RE.match(ln) for ln in lines)
 
     current = "main"
@@ -167,13 +174,12 @@ def parse_text(text):
         if not stripped:
             blank_run += 1
             continue
-        if stripped.startswith("//") or stripped.startswith("#"):
-            continue
-
-        key = stripped.rstrip(":").lower()
+        key = header_key(stripped)
         if key in SECTION_HEADERS:
             current = SECTION_HEADERS[key]
             blank_run = 0
+            continue
+        if stripped.startswith("//") or stripped.startswith("#"):
             continue
         # Linha "About"/"Name ..." do export do Arena.
         if not LINE_RE.match(stripped) and not SB_PREFIX_RE.match(stripped):
@@ -406,6 +412,13 @@ class NameResolver:
             entry.status = "erro"
             entry.note = "linha sem nome de carta"
             return
+        custom = scryfall.load_custom_cards().get(scryfall.fold(scryfall.front_face(entry.name)))
+        if custom:
+            # Carta criada pelo usuario: nao existe na Liga, nao entra no total.
+            entry.resolved = custom["name"]
+            entry.status = "carta custom"
+            entry.note = f"carta custom ({scryfall.custom_cards_path()}), sem preco"
+            return
         cached = self.cache.get(key) if self.use_cache else None
         if cached is not None:
             self.hits += 1
@@ -609,6 +622,8 @@ def print_card_detail(entry, campo, out=sys.stdout):
         print(f"\n  NAO ENCONTRADA na base da Liga. {entry.note}", file=out)
     elif entry.status == "falha de rede":
         print(f"\n  SEM PRECO por falha de rede: {entry.note}", file=out)
+    elif entry.status == "carta custom":
+        print(f"\n  CARTA CUSTOM, nao existe para comprar: {entry.note}", file=out)
     print(file=out)
 
 
@@ -621,7 +636,8 @@ def print_deck_table(entries, out=sys.stdout):
         if e.price is None:
             ed = {"sem estoque": "SEM ESTOQUE",
                   "nao encontrado": "NAO ENCONTRADA",
-                  "falha de rede": "FALHA DE REDE"}.get(e.status, e.status)
+                  "falha de rede": "FALHA DE REDE",
+                  "carta custom": "CARTA CUSTOM"}.get(e.status, e.status)
         print(f"{e.qty:>3}  {e.out[:40]:<40} {ed:<26} "
               f"{brl(e.price):>12} {brl(e.subtotal):>13}", file=out)
 
@@ -630,6 +646,7 @@ def report(entries, total, campo, foil, names, prices, top, out=sys.stderr):
     missing = [e for e in entries if e.status == "nao encontrado"]
     failed = [e for e in entries if e.status == "falha de rede"]
     nostock = [e for e in entries if e.status == "sem estoque"]
+    custom = [e for e in entries if e.status == "carta custom"]
     priced = [e for e in entries if e.price is not None]
     n_cards = sum(e.qty for e in entries)
     n_priced = sum(e.qty for e in priced)
@@ -644,6 +661,9 @@ def report(entries, total, campo, foil, names, prices, top, out=sys.stderr):
         lines.append("  ^ TOTAL INCOMPLETO - as linhas abaixo nao entraram "
                      "na soma.")
 
+    if custom:
+        lines.append(f"\nCartas custom, fora do total ({len(custom)}): "
+                     + ", ".join(e.out for e in custom))
     if nostock:
         lines.append(f"\nSem estoque na Liga ({len(nostock)}) - "
                      "custo real e MAIOR que o total acima:")
@@ -740,7 +760,7 @@ def main(argv=None):
 
     for key, group in by_name.items():
         head = group[0]
-        if head.status in ("nao encontrado", "falha de rede"):
+        if head.status in ("nao encontrado", "falha de rede", "carta custom"):
             for e in group:
                 e.status = head.status
                 e.note = head.note
@@ -769,7 +789,8 @@ def main(argv=None):
         payload = {
             "preco": args.preco, "foil": args.foil, "total": round(total, 2),
             "moeda": "BRL",
-            "completo": all(e.price is not None for e in total_entries),
+            "completo": all(e.price is not None or e.status == "carta custom"
+                            for e in total_entries),
             "cartas": [{
                 "qtd": e.qty, "pedido": e.name, "liga": e.out,
                 "secao": e.section, "status": e.status,

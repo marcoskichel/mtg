@@ -131,9 +131,16 @@ Scryfall `/cards/collection` doesn't find that name. The script tries the front
 face on its own. If `validate` says it resolved as another name, check it — it may
 be a typo fixed by fuzzy, it may be the wrong card.
 
-**`validate` knows Commander, not the other formats in depth.** For a `Format:`
-other than commander it checks only names and legality; deck size and singleton
-are up to you.
+**`validate` knows Commander and Pauper Commander, not other formats in depth.**
+`paupercommander` gets the full Commander checks, and its commander must be a
+creature Scryfall accepts there (printed at uncommon). Other spellings
+(`pauperEdh`, Moxfield's own id, `PDH`, `Pauper Commander`) read as
+`paupercommander`; `pull` writes the Scryfall name. For other `Format:` lines
+it checks only names and legality; deck size and singleton are up to you.
+
+**Custom cards can't go to Moxfield.** A card from the custom cards file
+(`scryfall-cards`) passes `validate` with a warning, unchecked for legality, but
+Moxfield drops it on import. Keep that deck local.
 
 **Game changers and bracket.** `validate` lists the deck's game changers
 (Scryfall's `game_changer` field). Bracket 3 allows up to 3; the user's deck aims

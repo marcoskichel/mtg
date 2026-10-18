@@ -588,5 +588,98 @@ class PricesTest(unittest.TestCase):
             self.assertEqual(build.prices(["Sol Ring"]), {"Sol Ring": None})
 
 
+def custom(name, ci):
+    c = sc(name, ci, "Legendary Creature — Human Advisor", cmc=3)
+    c["custom"], c["legalities"] = True, {}
+    return c
+
+
+def pdh(name, ci, legal, type_line="Creature"):
+    c = sc(name, ci, type_line)
+    c["legalities"] = {"commander": "legal", "paupercommander": legal}
+    return c
+
+
+PDH_CARDS = {c["name"]: c for c in [
+    custom("Giovanni, Suporte Lateral", "WB"),
+    pdh("Tithe Drinker", "WB", "legal"),
+    pdh("Vindicate", "WB", "not_legal", "Sorcery"),
+]}
+
+PDH_DECK = """// Name: Gio
+// Format: paupercommander
+// Bracket: 2
+
+// Commander
+1 Giovanni, Suporte Lateral
+"""
+
+
+class CustomPauperTest(Base):
+    def setUp(self):
+        super().setUp()
+        self.deck.write_text(PDH_DECK)
+        p = mock.patch.dict(CARDS, PDH_CARDS)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_init_skips_edhrec_for_a_custom_commander(self):
+        with mock.patch.object(build.edhrec, "fetch") as fetch:
+            code, out, err = self.run_cli(["init", str(self.deck)], PAGES)
+            self.assertFalse(fetch.called)
+        self.assertEqual(code, 0, err)
+        st = self.state()
+        self.assertEqual((st["format"], st["custom_commander"], st["identity"]),
+                         ("paupercommander", True, "WB"))
+        self.assertEqual(st["targets"], build.TEMPLATE)
+        self.assertIn("custom commander", err)
+
+    def test_pool_filters_by_the_deck_format(self):
+        self.run_cli(["init", str(self.deck)])
+        extra = self.dir / "extra.txt"
+        extra.write_text("Tithe Drinker\nVindicate\n")
+        code, out, err = self.run_cli(["pool", str(self.deck), "--extra", str(extra)])
+        self.assertEqual(code, 0, err)
+        self.assertEqual([c.name for c in self.boards()["maybeboard"]], ["Tithe Drinker"])
+        self.assertRegex(out, r"not legal: Vindicate")
+        self.assertNotIn("EDHREC has no commander page", err)
+
+
+class FormatAndShortlistTest(CustomPauperTest):
+    def test_pool_reads_the_format_from_the_deck_file(self):
+        self.run_cli(["init", str(self.deck)])
+        st = self.state()
+        del st["format"]  # a build.json written before formats existed
+        build.save_state(self.deck, st)
+        self.deck.write_text(self.deck.read_text().replace("paupercommander", "Commander"))
+        extra = self.dir / "extra.txt"
+        extra.write_text("Tithe Drinker\nVindicate\n")
+        self.run_cli(["pool", str(self.deck), "--extra", str(extra)])
+        self.assertEqual(sorted(c.name for c in self.boards()["maybeboard"]),
+                         ["Tithe Drinker", "Vindicate"])
+        self.assertEqual(self.state()["format"], "commander")
+
+    def test_moxfield_format_name_is_understood(self):
+        self.deck.write_text(PDH_DECK.replace("paupercommander", "pauperEdh"))
+        self.run_cli(["init", str(self.deck)])
+        self.assertEqual(self.state()["format"], "paupercommander")
+
+    def test_unranked_shortlist_is_not_cut(self):
+        self.run_cli(["init", str(self.deck)])
+        st = self.state()
+        st["pool"] = {f"Card {i:02}": {"inclusion": None, "synergy": None, "sources": ["search"],
+                                       "roles": [], "land": False, "gc": False, "cmc": 2}
+                      for i in range(30)}
+        build.save_state(self.deck, st)
+        self.deck.write_text(self.deck.read_text() + "\n// Maybeboard\n"
+                             + "".join(f"1 Card {i:02}\n" for i in range(30)))
+        out = self.dir / "theme.json"
+        code, text, _ = self.run_cli(["round", str(self.deck), "theme", "--out", str(out)])
+        self.assertEqual(len(json.loads(out.read_text())), 30)
+        code, text, _ = self.run_cli(["round", str(self.deck), "theme", "--out", str(out),
+                                      "--limit", "5"])
+        self.assertIn("first 5 of 30", text)
+
+
 if __name__ == "__main__":
     unittest.main()

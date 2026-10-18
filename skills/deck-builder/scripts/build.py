@@ -46,6 +46,7 @@ UTILITY_TAGS = {t for tags in ROLE_TAGS.values() for t in tags}
 MAX_SHIFT = 3
 LANDS_RANGE = (33, 40)
 NO_BRAINER_INCLUSION = 0.5
+DEFAULT_SHORTLIST = 20
 ROUNDS = ("no-brainers",) + tuple(ROLE_TAGS) + ("theme", "lands")
 WUBRG = "WUBRG"
 
@@ -228,8 +229,11 @@ def cmd_init(args):
 
     cmd_cards, missing = resolve(commanders)
     if missing:
-        print(f"commander not found on Scryfall: {', '.join(missing)}", file=sys.stderr)
+        print(f"commander not found on Scryfall: {', '.join(missing)} (a card of your own "
+              f"goes in {scryfall.custom_cards_path().resolve()})", file=sys.stderr)
         return 2
+    fmt = moxfield.canonical_format(meta.get("format"))
+    custom = any(scryfall.is_custom(c) for c in cmd_cards.values())
     # EDHREC pages are named after the canonical card, not what the file says.
     commanders = [cmd_cards[card_key(n)]["name"] for n in commanders]
     renamed = False
@@ -241,7 +245,8 @@ def cmd_init(args):
         write_deck(args.deck, boards, meta)
     identity = identity_of(cmd_cards.values())
     slug = _commander_path(commanders)
-    page, _ = edhrec.fetch("average-decks/" + slug)
+    # EDHREC knows only printed commanders; a custom one has no page to read.
+    page = None if custom else edhrec.fetch("average-decks/" + slug)[0]
     avg = edhrec.average_deck(page)
     avg_counts = avg_lands = None
     if avg:
@@ -253,6 +258,7 @@ def cmd_init(args):
         avg_lands = avg["lands"]
     targets, sources = adjust_targets(avg_counts, avg_lands)
     state = {"commanders": commanders, "identity": identity, "bracket": bracket,
+             "format": fmt, "custom_commander": custom,
              "targets": targets, "target_sources": sources,
              "budget": {"total": args.budget, "card": args.budget_card},
              "pool": {}, "rejected": [], "rounds": [], "offers": {}}
@@ -260,7 +266,7 @@ def cmd_init(args):
         if old_state and kept in old_state:
             state[kept] = old_state[kept]
     save_state(args.deck, state)
-    print(f"targets for {' + '.join(commanders)} (bracket {bracket}, identity "
+    print(f"targets for {' + '.join(commanders)} ({fmt}, bracket {bracket}, identity "
           f"{identity or 'colorless'}):")
     for k, v in targets.items():
         avg_note = ""
@@ -268,7 +274,9 @@ def cmd_init(args):
             avg_note = f" (average deck: {avg_lands if k == 'lands' else avg_counts[k]})"
         print(f"  {k:<11}{v:>3}  {sources[k]}{avg_note}")
     print(f"  {'theme':<11}  the rest; adjust targets in {build_path(args.deck)}")
-    if not avg:
+    if custom:
+        print("note: custom commander, no EDHREC data; template only", file=sys.stderr)
+    elif not avg:
         print(f"note: EDHREC has no average deck for {slug}; template only", file=sys.stderr)
     return 0
 
@@ -298,11 +306,12 @@ def cmd_pool(args):
             row["sources"].append(source)
 
     slug = _commander_path(state["commanders"])
-    page, _ = edhrec.fetch("commanders/" + slug)
-    no_page = page is None
+    custom = state.get("custom_commander")
+    page = None if custom else edhrec.fetch("commanders/" + slug)[0]
+    no_page = page is None and not custom
     for row in edhrec.commander_cards(page) if page else []:
         add(row["name"], "edhrec", row["inclusion"], row["synergy"])
-    avg = edhrec.average_deck(edhrec.fetch("average-decks/" + slug)[0])
+    avg = None if custom else edhrec.average_deck(edhrec.fetch("average-decks/" + slug)[0])
     for _, name in avg["cards"] if avg else []:
         add(name, "average")
     if args.extra:
@@ -317,6 +326,8 @@ def cmd_pool(args):
                "basic land": []}
     keep = []
     limit = gc_limit(state["bracket"])
+    # The deck file decides the format; init's copy may be older than an edit.
+    fmt = state["format"] = moxfield.canonical_format(meta.get("format"))
     for n in names:
         c = cards.get(card_key(n))
         if not c:
@@ -325,7 +336,7 @@ def cmd_pool(args):
             dropped["basic land"].append(n)
         elif not fits_identity(c, state["identity"]):
             dropped["off-identity"].append(n)
-        elif (c.get("legalities") or {}).get("commander") != "legal":
+        elif not scryfall.is_custom(c) and (c.get("legalities") or {}).get(fmt) != "legal":
             dropped["not legal"].append(n)
         elif c.get("game_changer") and limit == 0:
             dropped["game changer"].append(n)
@@ -360,6 +371,9 @@ def cmd_pool(args):
     if no_page:
         print(f"EDHREC has no commander page for {slug}: the pool holds only the "
               "average deck, --extra and Maybeboard cards", file=sys.stderr)
+    if custom and added == 0 and not boards["maybeboard"]:
+        print("custom commander: EDHREC has nothing, so the pool comes only from "
+              "--extra searches and the Maybeboard", file=sys.stderr)
     return 1 if missing or no_page else 0
 
 
@@ -407,7 +421,13 @@ def cmd_round(args):
 
     rows = sorted(((n, d) for n, d in pool.items() if keep(d)),
                   key=lambda x: (-(x[1]["inclusion"] or -1), -(x[1]["synergy"] or 0), x[0]))
-    rows = rows[:args.limit]
+    matching = len(rows)
+    # Without EDHREC inclusion (a custom commander) the order is alphabetical,
+    # so a default cap would hide cards by name: show them all.
+    limit = args.limit
+    if limit is None:
+        limit = DEFAULT_SHORTLIST if any(d["inclusion"] is not None for _, d in rows) else None
+    rows = rows[:limit]
     commander = " + ".join(state["commanders"])
     out = []
     for n, d in rows:
@@ -436,7 +456,8 @@ def cmd_round(args):
         need = f"need {max(lands['target'] - lands['have'], 0)} ({lands['have']}/{lands['target']})"
     else:
         need = f"need: open slots {open_slots}"
-    print(f"{args.role}: {len(out)} of {len(pool)} pool cards -> {args.out}; {need}")
+    more = f" (first {len(out)} of {matching}; --limit for more)" if len(out) < matching else ""
+    print(f"{args.role}: {len(out)} of {len(pool)} pool cards{more} -> {args.out}; {need}")
     return 0
 
 
@@ -595,7 +616,9 @@ def main(argv=None):
     p.add_argument("deck")
     p.add_argument("role", help=", ".join(ROUNDS))
     p.add_argument("--out", required=True, metavar="FILE")
-    p.add_argument("--limit", type=int, default=20)
+    p.add_argument("--limit", type=int, default=None,
+                   help=f"shortlist size (default {DEFAULT_SHORTLIST}; all when nothing is "
+                        "ranked by EDHREC inclusion)")
     p.set_defaults(fn=cmd_round)
 
     p = sub.add_parser("apply", help="apply a card-picker answer")

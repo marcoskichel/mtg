@@ -431,6 +431,18 @@ class Server(unittest.TestCase):
         self.assertEqual((status, body), (200, b"JPEG"))
         self.assertEqual(fetch.call_args[0][0], "https://cards.scryfall.io/b.jpg")
 
+    def test_custom_card_image_is_read_from_disk(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            png, txt = Path(tmp) / "gio.png", Path(tmp) / "secret.txt"
+            png.write_bytes(b"PNG")
+            txt.write_text("secret")
+            req = request()
+            req.update(ask="Pick", label="Pick 1", agent="Test",
+                       images={BOLT_ID: [png.as_uri(), txt.as_uri()]})
+            picker.call(self.state, "POST", "/api/requests", req)
+            self.assertEqual(self.raw(f"/img/{BOLT_ID}/0.jpg"), (200, b"PNG"))
+            self.assertEqual(self.raw(f"/img/{BOLT_ID}/1.jpg")[0], 502)
+
 
 class RunRequest(unittest.TestCase):
     """The exit-code contract agents rely on, against an in-process server."""
