@@ -69,6 +69,22 @@ python3 $F find 'otag:sweeper-one-sided id<=wb f:commander mv<=5'
 
 Prices in BRL: `ligamagic-preco`. Adding the result to a deck: `moxfield-deck`.
 
+## Roles of a card or deck
+
+`roles` says which of a fixed set of functions each card carries, from the
+cached tag file, with no searches:
+
+```bash
+python3 $F roles "Blood Artist" "Sol Ring"
+python3 $F roles -d decks/markov-gang.txt        # + counts per role (deck boards, by quantity)
+```
+
+Roles: `ramp, mana-rock, cost-reducer, draw, card-advantage, removal, sweeper,
+counterspell, protection, tutor, sacrifice-outlet, recursion`. A parent counts
+its children (`removal` includes `removal-creature`). `(no roles tagged)` means
+nobody tagged it, not that the card does nothing — read its text. score-card
+uses these counts to see what a deck lacks.
+
 ## Read stderr
 
 - `UNKNOWN TAG` (exit 2): the tag doesn't exist. Use a suggestion or run `tags`.

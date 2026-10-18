@@ -2,6 +2,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -242,6 +243,34 @@ class ScryfallResolve(unittest.TestCase):
         self.assertEqual(r["Delver of Secrets // Insectile Aberration"]["name"],
                          "Delver of Secrets // Insectile Aberration")
         self.assertEqual(calls[1], ["Delver of Secrets"])
+
+
+class ReadCardList(unittest.TestCase):
+    def write(self, text):
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+            f.write(text)
+        self.addCleanup(os.unlink, f.name)
+        return f.name
+
+    def test_deck_boards_only_with_printings_and_tags_stripped(self):
+        path = self.write("// Moxfield: https://moxfield.com/decks/x\n// Nome: T\n\n"
+                          "// Commander\n1 Saruman, the White Hand (LTC) 8 #cmd\n\n"
+                          "// Mainboard\n1 Sol Ring (CMM) 410 *F* #ramp\n"
+                          "1 Delver of Secrets // Insectile Aberration\n8 Island\n\n"
+                          "// Maybeboard\n1 Rhystic Study\n")
+        self.assertEqual(mx.read_card_list(path), [
+            (1, "Saruman, the White Hand"), (1, "Sol Ring"),
+            (1, "Delver of Secrets // Insectile Aberration"), (8, "Island")])
+
+    def test_all_boards_on_request(self):
+        path = self.write("// Mainboard\n1 Sol Ring\n// Maybeboard\n1 Rhystic Study\n")
+        self.assertEqual([n for _, n in mx.read_card_list(path, mx.BOARDS)],
+                         ["Sol Ring", "Rhystic Study"])
+
+    def test_bare_names_count_one_and_repeats_merge(self):
+        path = self.write("Sol Ring\nBlood Artist\n\n2 Swamp\nsol ring\n")
+        self.assertEqual(mx.read_card_list(path), [(2, "Sol Ring"), (1, "Blood Artist"),
+                                                   (2, "Swamp")])
 
 
 if __name__ == "__main__":
