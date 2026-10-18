@@ -17,12 +17,12 @@ nem TCGplayer. É preço de anúncio, não de venda concluída.
 
 ```bash
 # carta avulsa: agregado + tabela por edição, normal e foil
-python3 scripts/ligapreco.py "Lightning Bolt"
-python3 scripts/ligapreco.py "Raio" "Anel Solar"     # aceita português
+python3 skills/ligamagic-preco/scripts/ligapreco.py "Lightning Bolt"
+python3 skills/ligamagic-preco/scripts/ligapreco.py "Raio" "Anel Solar"     # aceita português
 
 # decklist inteira: custo total, edição mais barata por carta
-python3 scripts/ligapreco.py -d deck.txt
-cat lista.txt | python3 scripts/ligapreco.py -d -
+python3 skills/ligamagic-preco/scripts/ligapreco.py -d deck.txt
+cat lista.txt | python3 skills/ligamagic-preco/scripts/ligapreco.py -d -
 ```
 
 A entrada do `-d` pode ser qualquer coisa: export do Arena com set code, Moxfield
