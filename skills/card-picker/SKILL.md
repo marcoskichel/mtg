@@ -5,6 +5,11 @@ description: Use when the user should see Magic cards and choose among them inst
 
 # Letting the user pick cards
 
+`$SKILLS` below is the folder that holds the installed MTG skills, one level up
+from this file's folder (for example `~/.agents/skills`). Run commands from the
+user's project folder, so files under `decks/` land there. On Windows, call
+`python` (or `py`) when `python3` is missing.
+
 The user decides; your job is a short list worth deciding on. Every card on
 the page carries your **reason**, and a reason holds only if it rests on
 oracle text you read in this session (fetch it with `scryfall-cards`, find
@@ -12,7 +17,7 @@ candidates with `card-finder`). The page shows the real card next to your
 reason, so a reason the text doesn't back is visible to the user.
 
 ```bash
-P=skills/card-picker/scripts/picker.py
+P=$SKILLS/card-picker/scripts/picker.py
 python3 $P pick --suggestions picks.json --count 1-3 --title "Ramp for Edgar" \
   --prompt "Anything to change?" --prompt-optional
 python3 $P pick --cards "Sol Ring" "Arcane Signet" --count 1 --title "Which rock?"
@@ -65,5 +70,5 @@ on the machine stack on that page, so when the user says the page is empty or
 shows a question you didn't ask, another agent's request is open: have them
 switch tabs, or answer or cancel that one. The server
 exits after 15 idle minutes, and a call that finds a server running older code replaces it
-once nothing is waiting on it. Log, token and cached images live in `~/.cache/mtg-skills/card-picker/`.
-Tests: `python3 -m unittest discover -s skills/card-picker/tests`.
+once nothing is waiting on it. Log, token and cached images live in `~/.cache/mtg-$SKILLS/card-picker/`.
+Tests: `python3 -m unittest discover -s $SKILLS/card-picker/tests`.

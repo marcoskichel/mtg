@@ -400,7 +400,7 @@ def load_symbology():
     """{'{W/U}': svg url}, cached on disk for a month."""
     path = CACHE_DIR / "symbology.json"
     if path.exists() and time.time() - path.stat().st_mtime < SYMBOLOGY_MAX_AGE:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     resp = scryfall.api("/symbology")
     if scryfall.is_error(resp):
         return {}
@@ -413,7 +413,7 @@ def load_sets():
     """{'dom': icon svg url}, cached on disk for a month."""
     path = CACHE_DIR / "sets.json"
     if path.exists() and time.time() - path.stat().st_mtime < SYMBOLOGY_MAX_AGE:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     resp = scryfall.api("/sets")
     if scryfall.is_error(resp):
         return {}
@@ -456,7 +456,7 @@ def write_private(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w") as fh:
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(text)
     tmp.replace(path)
 
@@ -709,7 +709,7 @@ def call(state, method, path, body=None, timeout=10):
 
 def read_state():
     try:
-        return json.loads(STATE_FILE.read_text())
+        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
 
@@ -755,10 +755,13 @@ def ensure_server(port):
         # is free once the old server stops answering.
         wait_until(lambda: not ping(state), 5)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    # The server outlives this call: detach it from our session (POSIX) or console (Windows).
+    detach = ({"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
+              if os.name == "nt" else {"start_new_session": True})
     with open(LOG_FILE, "ab") as log:
         subprocess.Popen(
             [sys.executable, str(Path(__file__).resolve()), "serve", "--port", str(port)],
-            stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+            stdin=subprocess.DEVNULL, stdout=log, stderr=log, **detach)
 
     def started():
         fresh = read_state()
@@ -939,4 +942,7 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    # Card names are Unicode; Windows would otherwise use its legacy code page.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")
     sys.exit(main())

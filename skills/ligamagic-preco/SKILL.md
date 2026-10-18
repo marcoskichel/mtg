@@ -5,6 +5,10 @@ description: Use quando alguém perguntar quanto custa uma carta de Magic, o pre
 
 # Preço de carta e de deck na LigaMagic
 
+`$SKILLS` abaixo é a pasta onde as skills de MTG estão instaladas, um nível
+acima da pasta deste arquivo (por exemplo `~/.agents/skills`). No Windows, use
+`python` (ou `py`) se `python3` não existir.
+
 A Liga não tem API pública. O que existe é o `getEditions.php`, o mesmo endpoint
 que a página da carta chama para montar a tabela de edições. Ele responde sem
 autenticação e devolve texto limpo — ao contrário dos anúncios individuais das
@@ -17,12 +21,12 @@ nem TCGplayer. É preço de anúncio, não de venda concluída.
 
 ```bash
 # carta avulsa: agregado + tabela por edição, normal e foil
-python3 scripts/ligapreco.py "Lightning Bolt"
-python3 scripts/ligapreco.py "Raio" "Anel Solar"     # aceita português
+python3 $SKILLS/ligamagic-preco/scripts/ligapreco.py "Lightning Bolt"
+python3 $SKILLS/ligamagic-preco/scripts/ligapreco.py "Raio" "Anel Solar"     # aceita português
 
 # decklist inteira: custo total, edição mais barata por carta
-python3 scripts/ligapreco.py -d deck.txt
-cat lista.txt | python3 scripts/ligapreco.py -d -
+python3 $SKILLS/ligamagic-preco/scripts/ligapreco.py -d deck.txt
+cat lista.txt | python3 $SKILLS/ligamagic-preco/scripts/ligapreco.py -d -
 ```
 
 A entrada do `-d` pode ser qualquer coisa: export do Arena com set code, Moxfield

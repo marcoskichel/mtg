@@ -68,7 +68,7 @@ def _read_cache(path, ttl_hours):
     if not f.exists():
         return None
     try:
-        entry = json.loads(f.read_text())
+        entry = json.loads(f.read_text(encoding="utf-8"))
     except ValueError:
         return None
     if time.time() - entry.get("fetched", 0) > ttl_hours * 3600:
@@ -81,7 +81,7 @@ def _write_cache(path, page):
     f.parent.mkdir(parents=True, exist_ok=True)
     entry = {"fetched": time.time(), "page": page}
     tmp = f.with_suffix(".tmp")
-    tmp.write_text(json.dumps(entry))
+    tmp.write_text(json.dumps(entry), encoding="utf-8")
     tmp.replace(f)
     return entry
 
@@ -421,4 +421,7 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    # Card names are Unicode; Windows would otherwise use its legacy code page.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")
     sys.exit(main())

@@ -65,22 +65,22 @@ def build_path(deck):
 
 def load_state(deck):
     p = build_path(deck)
-    return json.loads(p.read_text()) if p.exists() else None
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
 
 
 def save_state(deck, state):
     p = build_path(deck)
     tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n")
+    tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(p)
 
 
 def read_deck(path):
-    return moxfield.parse_deck(Path(path).read_text())
+    return moxfield.parse_deck(Path(path).read_text(encoding="utf-8"))
 
 
 def write_deck(path, boards, meta):
-    Path(path).write_text(moxfield.render_deck(boards, meta))
+    Path(path).write_text(moxfield.render_deck(boards, meta), encoding="utf-8")
 
 
 def gc_limit(bracket):
@@ -167,12 +167,12 @@ def prices(names):
     """{name: lowest BRL price or None} through ligamagic-preco."""
     if not names:
         return {}
-    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
         f.write("".join(f"1 {n}\n" for n in names))
         path = f.name
     try:
         run = subprocess.run([sys.executable, str(LIGAPRECO), "--json", "-d", path],
-                             capture_output=True, text=True)
+                             capture_output=True, text=True, encoding="utf-8")
     finally:
         Path(path).unlink(missing_ok=True)
     if not run.stdout.strip():
@@ -422,7 +422,7 @@ def cmd_round(args):
             bits.append("GAME CHANGER")
         bits.append("source: " + ", ".join(d["sources"]))
         out.append({"name": n, "reason": "; ".join(bits)})
-    Path(args.out).write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n")
+    Path(args.out).write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     state.setdefault("offers", {})[str(Path(args.out).resolve())] = args.role
     save_state(args.deck, state)
 
@@ -444,7 +444,7 @@ def cmd_apply(args):
     state = _need_state(args.deck)
     if state is None:
         return 2
-    answer = json.loads(Path(args.answer).read_text())
+    answer = json.loads(Path(args.answer).read_text(encoding="utf-8"))
     if answer.get("status") != "picked":
         print(f"answer is {answer.get('status')!r}: nothing applied", file=sys.stderr)
         return 1
@@ -456,7 +456,7 @@ def cmd_apply(args):
         print(f"{args.offered} wasn't written by round: pass --role <round>",
               file=sys.stderr)
         return 2
-    offered = [o["name"] for o in json.loads(Path(args.offered).read_text())]
+    offered = [o["name"] for o in json.loads(Path(args.offered).read_text(encoding="utf-8"))]
     picked = {card_key(p["name"]): p for p in answer.get("picked") or []}
     boards, meta = read_deck(args.deck)
     src, dst = ("mainboard", "maybeboard") if args.cut else ("maybeboard", "mainboard")
@@ -623,4 +623,7 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    # Card names are Unicode; Windows would otherwise use its legacy code page.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")
     sys.exit(main())

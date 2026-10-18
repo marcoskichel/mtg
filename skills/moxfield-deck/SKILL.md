@@ -9,6 +9,11 @@ metadata:
 
 # Deck on Moxfield
 
+`$SKILLS` below is the folder that holds the installed MTG skills, one level up
+from this file's folder (for example `~/.agents/skills`). Run commands from the
+user's project folder, so files under `decks/` land there. On Windows, call
+`python` (or `py`) when `python3` is missing.
+
 Moxfield has no public API. Reading goes through the same JSON endpoint the site
 uses (`api2.moxfield.com`), which answers `curl` with a browser User-Agent.
 Writing only exists through the site, logged in — the script prepares the text
@@ -22,7 +27,7 @@ matches the file.
 ## Flow
 
 ```bash
-S=skills/moxfield-deck/scripts/moxfield.py
+S=$SKILLS/moxfield-deck/scripts/moxfield.py
 
 # 1. bring an existing deck (public or unlisted) into the repo
 python3 $S pull https://moxfield.com/decks/<id> -o decks/markov-gang.txt
@@ -142,7 +147,7 @@ format (headers and tags included).
 ## Tests
 
 ```bash
-python3 -m unittest discover -s skills/moxfield-deck/tests
+python3 -m unittest discover -s $SKILLS/moxfield-deck/tests
 ```
 
 The shape of the api2 JSON, measured calls and what changes between

@@ -1,9 +1,15 @@
 ---
 name: scryfall-cards
-description: Use when you need a Magic card's oracle text, cost, type, legality or rulings, when evaluating or building a deck and you need to read the cards, when someone asks "what does card X do", "what sets was it printed in", or when the question involves Scryfall search syntax (c: t: o: mv: f:). Applies even when the request doesn't mention Scryfall or gives the card name in Portuguese.
+description: >-
+  Use when you need a Magic card's oracle text, cost, type, legality or rulings, when evaluating or building a deck and you need to read the cards, when someone asks "what does card X do", "what sets was it printed in", or when the question involves Scryfall search syntax (c: t: o: mv: f:). Applies even when the request doesn't mention Scryfall or gives the card name in Portuguese.
 ---
 
 # Magic cards through Scryfall
+
+`$SKILLS` below is the folder that holds the installed MTG skills, one level up
+from this file's folder (for example `~/.agents/skills`). Run commands from the
+user's project folder, so files under `decks/` land there. On Windows, call
+`python` (or `py`) when `python3` is missing.
 
 Memory of a card is a hypothesis; the API response is the fact. Before giving
 an opinion on rules, synergy, substitutes or deck building, fetch the cards
@@ -12,7 +18,7 @@ involved and read the text that came back.
 ## Flow
 
 ```bash
-S=skills/scryfall-cards/scripts/scryfall.py
+S=$SKILLS/scryfall-cards/scripts/scryfall.py
 
 # oracle text, one or many cards (EN or PT, "A // B" accepted)
 python3 $S card "Brash Taunter" "Raio" "Delver of Secrets"

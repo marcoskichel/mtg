@@ -1,2 +1,11 @@
 __pycache__/
 *.pyc
+
+# Your decks and deck-builder work files stay local
+decks/*
+!decks/.gitkeep
+
+# Local agent state
+.claude/worktrees/
+.claude/settings.local.json
+.pi/
