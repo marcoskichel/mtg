@@ -418,6 +418,16 @@ def cmd_apply(args):
     picked = {card_key(p["name"]): p for p in answer.get("picked") or []}
     boards, meta = read_deck(args.deck)
     src, dst = ("mainboard", "maybeboard") if args.cut else ("maybeboard", "mainboard")
+    # The picker only returns cards it was shown: a pick outside the offer, or
+    # one no longer in the board, means a stale --offered file. Change nothing.
+    offered_keys = {card_key(n) for n in offered}
+    in_src = {card_key(c.name) for c in boards[src]}
+    stray = [p["name"] for k, p in picked.items() if k not in offered_keys or k not in in_src]
+    if stray:
+        print(f"picked but not in {args.offered} and the {src.capitalize()}: "
+              f"{', '.join(stray)}. Nothing applied; rerun round and the picker.",
+              file=sys.stderr)
+        return 1
     moved = []
     for card in list(boards[src]):
         p = picked.get(card_key(card.name))
@@ -448,17 +458,12 @@ def cmd_apply(args):
                             "offered": len(offered), "picked": moved, "cut": args.cut,
                             "note": answer.get("note")})
     save_state(args.deck, state)
-    missing = [p["name"] for k, p in picked.items()
-               if p["name"] not in moved and card_key(p["name"]) not in
-               {card_key(m) for m in moved}]
     verb = "cut" if args.cut else "added"
     print(f"{verb} {len(moved)}: {', '.join(moved) or '-'}")
     if rejected_now:
         print(f"rejected {len(rejected_now)}: {', '.join(rejected_now)}")
-    if missing:
-        print(f"not found in {src}: {', '.join(missing)}", file=sys.stderr)
     _stamp_profile(args.deck)
-    return 1 if missing else 0
+    return 0
 
 
 def _stamp_profile(deck):

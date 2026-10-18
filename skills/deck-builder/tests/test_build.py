@@ -329,6 +329,15 @@ class ApplyTest(Base):
         self.assertIn("Captivating Vampire", maybe)
         self.assertEqual(self.state()["rounds"][-1]["role"], "no-brainers")
 
+    def test_pick_not_in_offer_changes_nothing(self):
+        before = self.deck.read_text()
+        code, _, err = self.apply({"status": "picked", "picked": [
+            {"name": "Swords to Plowshares", "set": "a25", "collector_number": "35"}]})
+        self.assertEqual(code, 1)
+        self.assertIn("Swords to Plowshares", err)
+        self.assertEqual(self.deck.read_text(), before)
+        self.assertEqual(self.state()["rejected"], [])
+
     def test_cancelled_changes_nothing(self):
         before = self.deck.read_text()
         code, _, err = self.apply({"status": "cancelled"})
