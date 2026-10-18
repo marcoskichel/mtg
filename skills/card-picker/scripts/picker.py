@@ -21,7 +21,6 @@ import json
 import os
 import re
 import secrets
-import shlex
 import signal
 import socket
 import subprocess
@@ -55,6 +54,7 @@ BROWSER_FRESH = 4
 IDLE_EXIT = 15 * 60
 SYMBOLOGY_MAX_AGE = 30 * 24 * 3600
 IMAGE_HOSTS = ("cards.scryfall.io", "svgs.scryfall.io")
+SCRYFALL_API = "https://api.scryfall.com/"
 
 EXIT_OK, EXIT_INPUT, EXIT_SERVER, EXIT_TIMEOUT, EXIT_CANCEL = 0, 2, 3, 124, 130
 SECTION_ORDER = ("commander", "companion", "main", "side", "maybe")
@@ -169,12 +169,22 @@ def card_view(card, reason=""):
         "name": card["name"],
         "type": card.get("type_line", ""),
         "faces": views,
+        "reason": reason,
+        "printsUri": card.get("prints_search_uri") or "",
+        **print_view(card),
+    }
+
+
+def print_view(card):
+    """The parts of a card that change from one printing to the next."""
+    faces = card.get("card_faces") or [{}]
+    return {
+        "id": card["id"],
         "set": (card.get("set") or "").upper(),
         "setName": card.get("set_name", ""),
         "cn": card.get("collector_number", ""),
         "rarity": card.get("rarity", "common"),
-        "artist": card.get("artist") or (faces or [{}])[0].get("artist") or "",
-        "reason": reason,
+        "artist": card.get("artist") or faces[0].get("artist") or "",
         "images": len(card_images(card)),
     }
 
@@ -202,7 +212,8 @@ def build_answer(req, body):
     """What the page sent -> (JSON for the agent, exit code).
 
     The page sends indices; names come from the request's own cards, and the
-    count and note rules are checked here, not trusted from the page.
+    count and note rules are checked here, not trusted from the page. A
+    printing the user chose must be one the server loaded for that card.
     """
     cards = req["cards"]
     status = body.get("status")
@@ -224,14 +235,25 @@ def build_answer(req, body):
     lo, hi = req["min"], req["max"]
     if not lo <= len(picked) <= hi:
         raise ValueError(f"pick between {lo} and {hi} cards, got {len(picked)}")
-    out = {"status": "picked", "picked": [
-        {"name": cards[i]["name"], "set": cards[i]["set"].lower(),
-         "collector_number": cards[i]["cn"]} for i in picked]}
+    chosen = body.get("prints") or {}
+    if not isinstance(chosen, dict):
+        raise ValueError("prints must map card indices to printing ids")
+    loaded = req.get("printings") or {}
+    out = {"status": "picked", "picked": []}
+    for i in picked:
+        pv = cards[i]
+        if str(i) in chosen:
+            pv = next((p for p in loaded.get(str(i)) or [] if p["id"] == chosen[str(i)]), None)
+            if pv is None:
+                raise ValueError(f"unknown printing for card {i}")
+        out["picked"].append({"name": cards[i]["name"], "set": pv["set"].lower(),
+                              "collector_number": pv["cn"]})
     if req.get("prompt"):
         note = str(body.get("note") or "").strip() or None
         if note is None and not req.get("promptOptional"):
             raise ValueError("a note is required")
-        out["note"] = note
+        if note:
+            out["note"] = note
     return out, EXIT_OK
 
 
@@ -255,6 +277,9 @@ class Hub:
         self.closing = False
         self.symbols = {}
         self.symbols_lock = threading.Lock()
+        self.sets = {}
+        self.sets_lock = threading.Lock()
+        self.prints_lock = threading.Lock()
 
     def add(self, req, images):
         rid = secrets.token_hex(6)
@@ -272,7 +297,7 @@ class Hub:
         with self.cond:
             self.browser_seen = time.monotonic()
             reqs = sorted(self.requests.values(), key=lambda r: r["created"])
-            return [{k: v for k, v in r.items() if k not in ("cards", "answer", "seen")}
+            return [{k: v for k, v in r.items() if k not in ("cards", "printings", "answer", "seen")}
                     for r in reqs if r["answer"] is None]
 
     def get(self, rid):
@@ -334,6 +359,34 @@ class Hub:
                 self.closing = True
             return self.closing
 
+    def printings(self, rid, n):
+        """Paper printings of card n of request rid, newest first; None if gone.
+
+        Loaded from Scryfall on first ask and kept on the request, so the
+        answer can check the user's choice against them.
+        """
+        with self.cond:
+            req = self.requests.get(rid)
+            if req is None or not 0 <= n < len(req["cards"]):
+                return None
+            if str(n) in req.setdefault("printings", {}):
+                return req["printings"][str(n)]
+            uri = req["cards"][n].get("printsUri") or ""
+        # One Scryfall walk at a time: the API asks for spaced calls.
+        with self.prints_lock:
+            prints = load_printings(uri)
+        views = [print_view(p) for p in prints]
+        with self.cond:
+            self.images.update({p["id"]: card_images(p) for p in prints})
+            req["printings"][str(n)] = views
+        return views
+
+    def set_icon_url(self, code):
+        with self.sets_lock:
+            if not self.sets:
+                self.sets = load_sets()
+            return self.sets.get(code)
+
     def symbol_url(self, symbol):
         # The page asks for a handful of symbols at once; load the table once.
         # A failed load leaves it empty, so the next request tries again.
@@ -354,6 +407,32 @@ def load_symbology():
     table = {s["symbol"]: s["svg_uri"] for s in resp.get("data") or [] if s.get("svg_uri")}
     write_private(path, json.dumps(table))
     return table
+
+
+def load_sets():
+    """{'dom': icon svg url}, cached on disk for a month."""
+    path = CACHE_DIR / "sets.json"
+    if path.exists() and time.time() - path.stat().st_mtime < SYMBOLOGY_MAX_AGE:
+        return json.loads(path.read_text())
+    resp = scryfall.api("/sets")
+    if scryfall.is_error(resp):
+        return {}
+    table = {s["code"]: s["icon_svg_uri"] for s in resp.get("data") or [] if s.get("icon_svg_uri")}
+    write_private(path, json.dumps(table))
+    return table
+
+
+def load_printings(uri):
+    """Every paper printing behind a card's prints_search_uri."""
+    if not uri.startswith(SCRYFALL_API):
+        return []
+    prints, resp = [], scryfall.api(uri)
+    while not scryfall.is_error(resp):
+        prints += [p for p in resp.get("data") or [] if "paper" in (p.get("games") or ["paper"])]
+        if not resp.get("has_more") or not str(resp.get("next_page", "")).startswith(SCRYFALL_API):
+            break
+        resp = scryfall.api(resp["next_page"])
+    return prints
 
 
 def cached_fetch(url, path):
@@ -440,6 +519,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.image(parts[1], parts[2])
         if len(parts) == 2 and parts[0] == "sym":
             return self.symbol(urllib.parse.unquote(parts[1]))
+        if len(parts) == 2 and parts[0] == "set":
+            return self.set_icon(parts[1])
         if not path.startswith("/api/"):
             return self.send(HTTPStatus.NOT_FOUND, {"error": "not found"})
         qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
@@ -463,6 +544,15 @@ class Handler(BaseHTTPRequestHandler):
             if req is None:
                 return self.send(HTTPStatus.GONE, {"error": "gone"})
             return self.send(HTTPStatus.OK, req)
+        if (len(parts) == 6 and parts[:2] == ["api", "requests"] and parts[3] == "cards"
+                and parts[5] == "prints" and parts[4].isdigit()):
+            try:
+                prints = self.hub.printings(parts[2], int(parts[4]))
+            except (OSError, ValueError, urllib.error.URLError) as exc:
+                return self.send(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
+            if prints is None:
+                return self.send(HTTPStatus.GONE, {"error": "gone"})
+            return self.send(HTTPStatus.OK, {"printings": prints})
         if len(parts) == 4 and parts[:2] == ["api", "requests"] and parts[3] == "wait":
             try:
                 timeout = max(0.0, min(float((qs.get("timeout") or [WAIT_POLL])[0]), 60))
@@ -531,6 +621,20 @@ class Handler(BaseHTTPRequestHandler):
         except (OSError, ValueError, urllib.error.URLError) as exc:
             return self.send(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
         return self.send(HTTPStatus.OK, data, "image/jpeg", cache=True)
+
+    def set_icon(self, name):
+        m = re.fullmatch(r"([0-9a-z]{2,8})\.svg", name)
+        try:
+            url = m and self.hub.set_icon_url(m.group(1))
+        except (OSError, ValueError, urllib.error.URLError) as exc:
+            return self.send(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
+        if not url:
+            return self.send(HTTPStatus.NOT_FOUND, {"error": "no such set"})
+        try:
+            data = cached_fetch(url, CACHE_DIR / "sets" / f"{m.group(1)}.svg")
+        except (OSError, ValueError, urllib.error.URLError) as exc:
+            return self.send(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
+        return self.send(HTTPStatus.OK, data, "image/svg+xml", cache=True)
 
     def symbol(self, name):
         m = re.fullmatch(r"(.{1,12})\.svg", name)
@@ -695,13 +799,11 @@ def build_request(args, mode, cards):
                 else f"{lo}" if lo == hi else f"{lo}–{hi}")
         ask = args.title or f"Pick {want} card{'s' if hi > 1 else ''}"
         label = args.label or (f"Pick {want}" + (" + note" if args.prompt else ""))
-    argv = ["picker.py"] + sys.argv[1:] if sys.argv[1:2] == [mode] else ["picker.py", mode]
     return {
         "mode": mode, "min": lo, "max": hi, "ask": ask, "label": label,
         "agent": args.agent or default_agent(),
         "prompt": getattr(args, "prompt", None),
         "promptOptional": getattr(args, "prompt_optional", False),
-        "cmd": [shlex.quote(a) for a in argv],
         "cards": cards,
     }
 

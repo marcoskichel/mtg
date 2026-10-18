@@ -172,7 +172,7 @@ class BuildAnswer(unittest.TestCase):
     def test_note_rules(self):
         out, _ = picker.build_answer(request(prompt="Why?", optional=True),
                                      {"status": "picked", "picked": [0], "note": "  "})
-        self.assertIsNone(out["note"])
+        self.assertNotIn("note", out)
         with self.assertRaises(ValueError):
             picker.build_answer(request(prompt="Why?"), {"status": "picked", "picked": [0]})
         out, _ = picker.build_answer(request(prompt="Why?"),
@@ -180,6 +180,18 @@ class BuildAnswer(unittest.TestCase):
         self.assertEqual(out["note"], "fast")
         out, _ = picker.build_answer(request(), {"status": "picked", "picked": [0], "note": "x"})
         self.assertNotIn("note", out)
+
+    def test_chosen_printing(self):
+        req = request(lo=1, hi=2)
+        req["printings"] = {"0": [picker.print_view(card("Lightning Bolt", "p1", set="lea",
+                                                           collector_number="161"))]}
+        out, _ = picker.build_answer(req, {"status": "picked", "picked": [0, 1],
+                                           "prints": {"0": "p1"}})
+        self.assertEqual([(p["set"], p["collector_number"]) for p in out["picked"]],
+                         [("lea", "161"), ("m11", "149")])
+        for prints in ({"0": "nope"}, {"1": "p1"}, ["p1"]):
+            with self.subTest(prints=prints), self.assertRaises(ValueError):
+                picker.build_answer(req, {"status": "picked", "picked": [0, 1], "prints": prints})
 
     def test_cancel_and_show(self):
         self.assertEqual(picker.build_answer(request(), {"status": "cancelled"}),
@@ -251,7 +263,7 @@ class Server(unittest.TestCase):
 
     def register(self, **kw):
         req = request(**kw)
-        req.update(ask="Pick", label="Pick 1", agent="Test", cmd=["picker.py"],
+        req.update(ask="Pick", label="Pick 1", agent="Test",
                    images={BOLT_ID: ["https://cards.scryfall.io/b.jpg"]})
         status, body = picker.call(self.state, "POST", "/api/requests", req)
         self.assertEqual(status, 200)
@@ -354,6 +366,42 @@ class Server(unittest.TestCase):
         url, path = fetch.call_args[0]
         self.assertEqual(url, "https://svgs.scryfall.io/card-symbols/WU.svg")
         self.assertRegex(path.name, r"^[0-9a-f]{16}\.svg$")
+
+    def test_printings_route(self):
+        rid = self.register()
+        uri = "https://api.scryfall.com/cards/search?q=oracleid%3Ax&unique=prints"
+        self.hub.requests[rid]["cards"][0]["printsUri"] = uri
+        pages = {
+            uri: {"data": [card("Lightning Bolt", "p1", set="lea"),
+                           card("Lightning Bolt", "p2", set="prm", games=["mtgo"])],
+                  "has_more": True, "next_page": "https://api.scryfall.com/page2"},
+            "https://api.scryfall.com/page2": {"data": [card("Lightning Bolt", "p3", set="2xm")]},
+        }
+        with mock.patch.object(picker.scryfall, "api", side_effect=pages.__getitem__) as api:
+            status, body = picker.call(self.state, "GET", f"/api/requests/{rid}/cards/0/prints")
+            again = picker.call(self.state, "GET", f"/api/requests/{rid}/cards/0/prints")[1]
+        self.assertEqual(status, 200)
+        self.assertEqual([p["set"] for p in body["printings"]], ["LEA", "2XM"])
+        self.assertEqual(again, body)
+        self.assertEqual(api.call_count, 2)
+        self.assertEqual(self.hub.images["p1"], ["https://cards.scryfall.io/normal/p1.jpg"])
+        self.assertEqual(picker.call(self.state, "GET", f"/api/requests/{rid}/cards/9/prints")[0], 410)
+        self.assertEqual(picker.call(self.state, "GET", "/api/requests/nope/cards/0/prints")[0], 410)
+        status, listing = picker.call(self.state, "GET", "/api/requests")
+        self.assertNotIn("printings", listing["requests"][0])
+
+    def test_printings_stay_on_scryfall(self):
+        with mock.patch.object(picker.scryfall, "api") as api:
+            self.assertEqual(picker.load_printings("https://evil.example/cards"), [])
+        api.assert_not_called()
+
+    def test_set_icon_route(self):
+        self.hub.sets = {"dom": "https://svgs.scryfall.io/sets/dom.svg"}
+        with mock.patch.object(picker, "cached_fetch", return_value=b"<svg/>") as fetch:
+            self.assertEqual(self.raw("/set/dom.svg"), (200, b"<svg/>"))
+            self.assertEqual(self.raw("/set/xyz.svg")[0], 404)
+            self.assertEqual(self.raw("/set/..%2Fdom.svg")[0], 404)
+        self.assertEqual(fetch.call_args[0][0], "https://svgs.scryfall.io/sets/dom.svg")
 
     def test_answer_after_caller_left(self):
         rid = self.register()
