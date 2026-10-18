@@ -60,23 +60,31 @@ K=skills/card-picker/scripts/picker.py
    3. `$K pick --suggestions <file> --count <N-M> --title "<role> for <deck>"`
       in the background, with `N-M` around the need (no-brainers: as many as
       fit). Act on the answer per `card-picker`: picked JSON goes to
-      `$B apply <deck> --answer <answer file> --offered <file>`; a `note`
-      changes your next shortlist; cancel or timeout means ask in chat.
-   Picked cards move to the Mainboard with the printing the user chose; the
-   rest of a role round leaves the pool, while no-brainers that weren't
-   picked stay for their role round. Done when every role's need is 0 or the
+      `$B apply <deck> --answer <answer file> --offered <file>`, which takes
+      the round from the file `round` wrote (a suggestions file you wrote by
+      hand needs `--role <round>`); a `note` changes your next shortlist;
+      cancel or timeout means ask in chat.
+   4. `$P show <deck>`. On `drift` or `STALE`, reread Plan, Rewards and
+      Lacks against what was just picked, update them if the picks moved the
+      plan, then `$P stamp <profile>`. The next round's grades read this
+      profile.
+   Picked cards move to the Mainboard with the printing the user chose. An
+   unpicked card leaves the pool once every round it qualifies for has run:
+   declined no-brainers wait for their role round, and Path to Exile
+   (removal and ramp) survives the ramp round to be offered for removal. Done when every role's need is 0 or the
    user has said it's enough.
 
-5. **Fill or cut.** `$B status <deck>`. Under 100: run `theme` again, or
-   `lands` for basics, until the deck is 100 (basics: add the count to the
-   Mainboard directly, split by the colors the curve needs). Over 100: grade
+5. **Fill or cut.** `$B status <deck>`. Under 100: run `theme` again for
+   spells, and add basic lands by editing the Mainboard (`8 Swamp`), split by
+   the colored sources the curve needs; the pool never holds basics. Over 100: grade
    the Mainboard in-deck, write the weakest as suggestions (verdict as each
    reason), `$K pick --suggestions <file> --count <excess>`, and apply the
-   answer with `$B apply <deck> --answer <answer file> --offered <file> --cut`. Done when `status` says 100/100, no `OVER BRACKET`.
+   answer with `$B apply <deck> --answer <answer file> --offered <file> --cut`
+   (one copy per pick: cutting a Swamp from 12 leaves 11). Done when `status` says 100/100, no `OVER BRACKET`.
 
 6. **Finish.** `moxfield.py validate <deck>`, then the total with
-   `ligamagic-preco -d <deck>` against the budget, then `$P show <deck>` for
-   the final role counts. Report those three in a few lines and offer the
+   `ligamagic-preco -d <deck>` against the budget, then `$B status <deck>`
+   for the final role counts against the targets. Report those three in a few lines and offer the
    Moxfield upload; upload only when the user says so (`moxfield-deck`).
    Done when validate passes and the user has the total.
 
@@ -86,11 +94,13 @@ Targets, the template and how `init` adjusts them: `references/template.md`.
 
 - **Inclusion is popularity.** "In 82% of Edgar decks" says players run it,
   not that it fits this Plan. The verdict comes from the text and the rubric.
-- **Rejections stick.** A card left unpicked in a role round won't come back;
-  if the user asks for one back, remove it from `rejected` in the build file
-  and rerun `pool`.
+- **Rejections stick.** A rejected card won't come back. If the user asks for
+  one, remove it from `rejected` in the build file and rerun `pool` (with the
+  same `--extra` file if it came from a search).
 - **Game changers.** `status` exits 1 with `OVER BRACKET` past the bracket's
   limit (3 at bracket 3); cut one before finishing.
-- **The profile tracks the list.** `apply` restamps `<name>.profile.md` after
-  every round, so it never reads stale; when picks change the plan (a note
-  says "more tokens"), rewrite Plan/Rewards and stamp again.
+- **Stamp means reviewed.** `$P stamp` says the strategy still fits the list;
+  run it only after rereading the profile against the round's picks (step
+  4.4), never as a reflex to clear `STALE`.
+- **A misspelled commander** is fixed by `init`: it writes Scryfall's name
+  back to the deck file, and EDHREC is read under that name.
