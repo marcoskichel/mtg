@@ -318,6 +318,17 @@ class ApplyTest(Base):
         self.assertEqual(st["rounds"][-1]["role"], "theme")
         self.assertEqual(st["rounds"][-1]["picked"], ["Captivating Vampire"])
 
+    def test_no_brainers_round_keeps_the_rest_in_the_pool(self):
+        self.run_cli(["round", str(self.deck), "no-brainers", "--out", str(self.offered)],
+                     PAGES)
+        code, out, _ = self.apply({"status": "picked", "picked": [
+            {"name": "Command Tower", "set": "cmm", "collector_number": "1"}]})
+        self.assertEqual(code, 0)
+        self.assertEqual(self.state()["rejected"], [])
+        maybe = {c.name for c in self.boards()["maybeboard"]}
+        self.assertIn("Captivating Vampire", maybe)
+        self.assertEqual(self.state()["rounds"][-1]["role"], "no-brainers")
+
     def test_cancelled_changes_nothing(self):
         before = self.deck.read_text()
         code, _, err = self.apply({"status": "cancelled"})

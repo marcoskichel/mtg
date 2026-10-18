@@ -430,8 +430,11 @@ def cmd_apply(args):
             boards[dst].append(moxfield.Card(card.qty, p["name"], dst, p.get("set"),
                                              p.get("collector_number"), tags=card.tags))
         moved.append(p["name"])
+    role = "cut" if args.cut else args.role or state.get("last_round") or "?"
     rejected_now = []
-    if not args.cut:
+    # Declining an auto-include is not declining the card: after no-brainers the
+    # rest stays in the pool for its role round.
+    if not args.cut and role != "no-brainers":
         for name in offered:
             if card_key(name) in picked:
                 continue
@@ -441,7 +444,6 @@ def cmd_apply(args):
                 state["rejected"].append(name)
                 rejected_now.append(name)
     write_deck(args.deck, boards, meta)
-    role = "cut" if args.cut else args.role or state.get("last_round") or "?"
     state["rounds"].append({"role": role,
                             "offered": len(offered), "picked": moved, "cut": args.cut,
                             "note": answer.get("note")})
