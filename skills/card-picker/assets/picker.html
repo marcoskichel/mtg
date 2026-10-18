@@ -110,8 +110,6 @@ h1, h2, p { margin: 0; }
 .tab[aria-selected="true"] .agent { color: var(--fg-dim); }
 .tab .kbd { min-width: 20px; padding: 0 4px; }
 @media (hover: hover) { .tab:hover { color: var(--fg); background: var(--surface-2); } }
-.cmd { color: var(--fg-faint); font: 400 var(--fs-xs)/1.5 var(--mono); }
-.cmd .flag { color: var(--accent); } .cmd .str { color: var(--warn); }
 
 .askline { display: flex; align-items: center; gap: var(--s3); min-width: 0; flex-wrap: wrap; }
 .askline .who { color: var(--fg-dim); font-size: var(--fs-sm); }
@@ -260,11 +258,6 @@ dialog::backdrop { background: rgba(5,6,9,.7); }
 .keytable dt { display: flex; gap: var(--s1); flex-wrap: wrap; }
 .keytable dd { margin: 0; color: var(--fg-dim); }
 .keytable .sect { grid-column: 1 / -1; font-weight: 600; color: var(--fg); padding-top: var(--s2); }
-.out { margin: 0; padding: var(--s4); border: 1px solid var(--line); border-radius: var(--r); background: var(--bg); font: 400 var(--fs-sm)/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
-.out .k { color: var(--accent); } .out .s { color: var(--warn); } .out .n { color: #c4a8ec; }
-.exit { display: flex; align-items: center; gap: var(--s2); font-weight: 600; }
-.exit.ok { color: var(--ok); } .exit.bad { color: var(--warn); }
-.exit .od-icon { --od-icon-size: 20px; }
 .muted { color: var(--fg-dim); font-size: var(--fs-sm); }
 
 /* ── responsive ──────────────────────────────────────────── */
@@ -286,7 +279,6 @@ dialog::backdrop { background: rgba(5,6,9,.7); }
   .topbar { padding: var(--s3) var(--s4); }
   .topline { flex-wrap: wrap; }
   .tabs { flex: 1 1 100%; }
-  .cmd { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -301,13 +293,30 @@ dialog::backdrop { background: rgba(5,6,9,.7); }
 .oracle .face + .face { padding-top: var(--s3); border-top: 1px solid var(--line); }
 .oracle .face { display: grid; gap: var(--s2); }
 .oracle .face .ftype { color: var(--fg-dim); font-size: var(--fs-sm); }
-.tab .done { color: var(--ok); display: flex; --od-icon-size: 14px; }
 .idle { display: grid; place-content: center; gap: var(--s3); min-height: 60dvh; padding: var(--s6) var(--s4); text-align: center; color: var(--fg-dim); }
 .idle[hidden] { display: none; }
 .idle b { color: var(--fg); font-size: var(--fs-lg); font-weight: 600; }
 .idle .od-icon { --od-icon-size: 40px; margin: 0 auto; color: var(--fg-faint); }
-.app.empty-app .split, .app.empty-app .actionbar, .app.empty-app .askline, .app.empty-app .cmd { display: none; }
+.app.empty-app .split, .app.empty-app .actionbar, .app.empty-app .askline { display: none; }
 .app.empty-app { grid-template-rows: auto minmax(0, 1fr); }
+.versions { display: flex; flex-wrap: wrap; gap: 2px; margin-top: var(--s3); max-height: 104px; overflow-y: auto; }
+.versions .muted { font-size: var(--fs-xs); padding: var(--s1) 0; }
+.ver { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid transparent; border-radius: var(--r); background: transparent; cursor: pointer; }
+.ver i { display: block; width: 20px; height: 20px; background: var(--fg-faint); opacity: .55; -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; transition: opacity var(--t-fast) ease-out; }
+.ver[aria-pressed="true"] { border-color: var(--line); background: var(--surface-2); }
+.ver[aria-pressed="true"] i { opacity: 1; }
+.ver[aria-pressed="true"].rar-common i { background: var(--rar-common); }
+.ver[aria-pressed="true"].rar-uncommon i { background: var(--rar-uncommon); }
+.ver[aria-pressed="true"].rar-rare i { background: var(--rar-rare); }
+.ver[aria-pressed="true"].rar-mythic i { background: var(--rar-mythic); }
+@media (hover: hover) { .ver:hover i { opacity: 1; } }
+.buy { justify-self: start; text-decoration: none; }
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--fg-faint); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
 .banner { padding: var(--s2) var(--s5); background: color-mix(in srgb, var(--warn) 14%, var(--surface)); color: var(--warn); font-size: var(--fs-sm); border-bottom: 1px solid var(--line); }
 </style>
 </head>
@@ -322,7 +331,6 @@ dialog::backdrop { background: rgba(5,6,9,.7); }
       <div class="tabs" role="tablist" aria-label="Agent requests" id="tabs"></div>
     </div>
     <div class="askline" id="askline"></div>
-    <div class="cmd" id="cmd"></div>
   </header>
 
   <div class="idle" id="idle">
@@ -396,6 +404,7 @@ dialog::backdrop { background: rgba(5,6,9,.7); }
       <dt><span class="kbd">PgUp</span><span class="kbd">PgDn</span></dt><dd>Jump 5 cards</dd>
       <dt><span class="kbd">→</span> or <span class="kbd">l</span></dt><dd>Into card details · <span class="kbd">←</span> <span class="kbd">h</span> back to list</dd>
       <dt><span class="kbd">f</span></dt><dd>Flip a double-faced card</dd>
+      <dt><span class="kbd">[</span><span class="kbd">]</span></dt><dd>Previous / next printing</dd>
       <dt><span class="kbd">/</span></dt><dd>Search · <span class="kbd">↓</span> or <span class="kbd">⏎</span> back to list · <span class="kbd">esc</span> clear</dd>
       <dt><span class="kbd">1</span>–<span class="kbd">9</span></dt><dd>Switch request tab</dd>
       <div class="sect">Pick</div>
@@ -408,19 +417,6 @@ dialog::backdrop { background: rgba(5,6,9,.7); }
     </dl>
   </div>
   <div class="dlg-foot"><button class="btn primary" type="button" data-act="help-close">Close <span class="kbd">esc</span></button></div>
-</dialog>
-
-<dialog id="dlg-result" aria-labelledby="result-title">
-  <div class="dlg-head">
-    <svg class="od-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11.5 21 3l-8.5 18-2-7.5z"/></svg>
-    <h2 id="result-title">Sent</h2>
-  </div>
-  <div class="dlg-body">
-    <div class="exit" id="result-exit"></div>
-    <p class="muted" id="result-note">The agent received this JSON.</p>
-    <pre class="out" id="result-out"></pre>
-  </div>
-  <div class="dlg-foot"><button class="btn primary" type="button" data-act="result-close" id="btn-result-close">Close <span class="kbd">⏎</span></button></div>
 </dialog>
 
 <script>
@@ -455,8 +451,8 @@ const ICON = {
   check: svg('<path d="m5 12.5 4.5 4.5L19 7.5"/>', 'stroke-width="2.25"'),
   plus: svg('<path d="M12 5v14M5 12h14"/>'),
   warn: svg('<path d="M12 3.5 22 20H2z"/><path d="M12 10v4.5M12 17.5h.01"/>'),
-  x: svg('<path d="M6 6l12 12M18 6 6 18"/>'),
   flip: svg('<path d="M4 9a8 8 0 0 1 14-3l2 2M20 15a8 8 0 0 1-14 3l-2-2"/><path d="M20 4v4h-4M4 20v-4h4"/>'),
+  cart: svg('<circle cx="9" cy="20" r="1.25"/><circle cx="18" cy="20" r="1.25"/><path d="M2.5 3.5h3l2.4 11.2a1.5 1.5 0 0 0 1.5 1.3h8.2a1.5 1.5 0 0 0 1.5-1.2L21 7.5H6.3"/>'),
   spark: svg('<path d="M12 3v4M12 17v4M3 12h4M17 12h4"/>'),
 };
 const kindOf = t => /Planeswalker/.test(t) ? "planeswalker" : /Creature/.test(t) ? "creature" : /Battle/.test(t) ? "battle"
@@ -474,10 +470,10 @@ const cap = s => s ? s[0].toUpperCase() + s.slice(1) : "";
 const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
 /* ── state ──────────────────────────────────────────────── */
-let TABS = [];          // requests, oldest first; done ones stay until their result is closed
+let TABS = [];          // waiting requests, oldest first
 const STATE = {};       // per request id: cursor, sel, filter, note, face
-let active = 0, msg = null, msgTimer = null, returnFocus = null, offline = false, resultFor = null;
-const freshState = () => ({ cursor: 0, sel: [], filter: "", note: "", face: 0, result: null });
+let active = 0, msg = null, msgTimer = null, returnFocus = null, offline = false, sent = null;
+const freshState = () => ({ cursor: 0, sel: [], filter: "", note: "", face: 0, prints: {}, printings: {} });
 const tab = () => TABS[active];
 const st = () => STATE[tab().id];
 const cards = () => tab().cards;
@@ -497,7 +493,7 @@ const remaining = (t, s) => Math.max(0, t.min - s.sel.length);
 function renderTop() {
   $("#tabs").innerHTML = TABS.map((t, i) => `
     <button class="tab" role="tab" id="tab-${t.id}" aria-selected="${i === active}" aria-controls="main" tabindex="${i === active ? 0 : -1}" data-tab="${i}">
-      ${STATE[t.id].result ? `<span class="done">${ICON.check}</span>` : ""}<span>${esc(t.label)}</span><span class="agent">${esc(t.agent)}</span>${i < 9 ? `<span class="kbd" aria-hidden="true">${i + 1}</span>` : ""}
+      <span>${esc(t.label)}</span><span class="agent">${esc(t.agent)}</span>${i < 9 ? `<span class="kbd" aria-hidden="true">${i + 1}</span>` : ""}
     </button>`).join("");
   if (!TABS.length) return;
   const t = tab(), s = st();
@@ -507,7 +503,6 @@ function renderTop() {
     <h1>${esc(t.ask)}</h1>
     <span class="badge mode">${t.mode === "show" ? "VIEW" : t.prompt ? "PICK + NOTE" : "PICK"}</span>
     ${t.mode === "pick" ? `<span class="badge ${full ? "full" : ""}">${full ? ICON.check : ""}${esc(pickedLabel(t, s))}</span>` : ""}`;
-  $("#cmd").innerHTML = `<span aria-hidden="true">$ </span>${t.cmd.map(p => p.startsWith("--") ? `<span class="flag">${esc(p)}</span>` : p.startsWith("'") ? `<span class="str">${esc(p)}</span>` : esc(p)).join(" ")}`;
 }
 
 function renderList() {
@@ -546,24 +541,69 @@ function faceBlock(f, withName) {
 }
 
 let lastDetail = null;
+/* printings: loaded per card on first view; s.prints holds the user's choice */
+function printOf(s, i) {
+  const list = s.printings[i], id = s.prints[i];
+  return (Array.isArray(list) && id && list.find(p => p.id === id)) || cards()[i];
+}
+async function loadPrintings(t, s, i) {
+  if (s.printings[i]) return;
+  s.printings[i] = "loading";
+  let r;
+  try { r = await api("GET", `api/requests/${t.id}/cards/${i}/prints`); } catch { r = null; }
+  if (STATE[t.id] !== s) return;
+  s.printings[i] = r && r.status === 200 ? r.data.printings : "error";
+  if (tab() === t && st().cursor === i) renderDetail();
+}
+function choosePrint(id) {
+  const s = st(), list = s.printings[s.cursor];
+  if (!Array.isArray(list) || !list.some(p => p.id === id)) return;
+  if (id === cards()[s.cursor].id) delete s.prints[s.cursor]; else s.prints[s.cursor] = id;
+  s.face = 0;
+  const p = printOf(s, s.cursor);
+  flash(`${p.setName} #${p.cn}`);
+  render();
+  document.querySelector(`.ver[data-print="${CSS.escape(id)}"]`)?.focus();
+}
+function stepPrint(delta) {
+  const s = st(), list = s.printings[s.cursor];
+  if (!Array.isArray(list) || list.length < 2) return;
+  const at = list.findIndex(p => p.id === printOf(s, s.cursor).id);
+  choosePrint(list[(at + delta + list.length) % list.length].id);
+}
+function versionsUI(t, s) {
+  const list = s.printings[s.cursor];
+  if (list === "error") return `<div class="versions"><span class="muted">Printings unavailable</span></div>`;
+  if (!Array.isArray(list)) return `<div class="versions"><span class="muted">Loading printings…</span></div>`;
+  if (list.length < 2) return "";
+  const cur = printOf(s, s.cursor).id;
+  return `<div class="versions" role="group" aria-label="Printings">${list.map(p => {
+    const rar = RARITIES.includes(p.rarity) ? p.rarity : "mythic";
+    const tip = `${p.setName} (${p.set}) #${p.cn}`;
+    return `<button class="ver rar-${rar}" type="button" data-print="${esc(p.id)}" aria-pressed="${p.id === cur}" title="${esc(tip)}" aria-label="${esc(tip)}"><i style="--icon:url('set/${encodeURIComponent(p.set.toLowerCase())}.svg')"></i></button>`;
+  }).join("")}</div>`;
+}
+const ligaUrl = c => `https://www.ligamagic.com.br/?view=cards/card&card=${encodeURIComponent(c.faces[0].name || c.name)}`;
+
 function renderDetail() {
   const t = tab(), s = st(), el = $("#detail");
   if (!visible().length) { el.innerHTML = `<div class="empty"><b>No card selected</b>Clear the search to see cards again.</div>`; lastDetail = null; return; }
-  const c = cards()[s.cursor], picked = s.sel.includes(s.cursor);
+  const c = cards()[s.cursor], p = printOf(s, s.cursor), picked = s.sel.includes(s.cursor);
+  loadPrintings(t, s, s.cursor);
   // Transform/MDFC: one picture per face, flip between them. Split/adventure: one picture, every face's text.
-  const flips = c.images > 1, face = flips ? c.faces[Math.min(s.face, c.faces.length - 1)] : c.faces[0];
+  const flips = p.images > 1, face = flips ? c.faces[Math.min(s.face, c.faces.length - 1)] : c.faces[0];
   const shown = flips ? [face] : c.faces;
   const title = flips ? face.name : c.name;
   const cost = flips ? face.cost : c.faces.map(f => f.cost).filter(Boolean).join(" // ");
   const type = flips ? face.type : c.type;
   const statFace = flips ? face : c.faces.find(f => f.power != null || f.loyalty != null || f.defense != null) || c.faces[0];
-  const rar = RARITIES.includes(c.rarity) ? c.rarity : "mythic";
+  const rar = RARITIES.includes(p.rarity) ? p.rarity : "mythic";
   const stats = [
     statFace.power != null ? `<div class="stat"><span class="v">${esc(statFace.power)}/${esc(statFace.toughness)}</span><span class="l">Power / toughness</span></div>` : "",
     statFace.loyalty != null ? `<div class="stat"><span class="v">◆ ${esc(statFace.loyalty)}</span><span class="l">Starting loyalty</span></div>` : "",
     statFace.defense != null ? `<div class="stat"><span class="v">⛨ ${esc(statFace.defense)}</span><span class="l">Defense</span></div>` : "",
-    `<div class="stat"><span class="v">${esc(c.set)} #${esc(c.cn)}</span><span class="l">${esc(c.setName)}</span></div>`,
-    `<div class="stat"><span class="v rar-${rar}">● ${esc(cap(c.rarity))}</span><span class="l">Rarity</span></div>`,
+    `<div class="stat"><span class="v">${esc(p.set)} #${esc(p.cn)}</span><span class="l">${esc(p.setName)}</span></div>`,
+    `<div class="stat"><span class="v rar-${rar}">● ${esc(cap(p.rarity))}</span><span class="l">Rarity</span></div>`,
   ].join("");
   const left = remaining(t, s);
   const pickUI = t.mode === "pick" ? `
@@ -580,9 +620,10 @@ function renderDetail() {
     <figure class="figure ${picked ? "picked" : ""}" id="fig">
       ${picked ? `<span class="pick-badge">${ICON.check}Picked</span>` : ""}
       <div class="frame">
-        ${c.images ? `<img src="img/${encodeURIComponent(c.id)}/${imgIdx}.jpg" width="488" height="680" alt="${esc(title)} card image" decoding="async">` : ""}
+        ${p.images ? `<img src="img/${encodeURIComponent(p.id)}/${imgIdx}.jpg" width="488" height="680" alt="${esc(title)} card image" decoding="async">` : ""}
       </div>
-      <figcaption class="figcap">${c.artist ? `Illus. ${esc(c.artist)} · ` : ""}Image via Scryfall</figcaption>
+      <figcaption class="figcap">${p.artist ? `Illus. ${esc(p.artist)} · ` : ""}Image via Scryfall</figcaption>
+      ${versionsUI(t, s)}
     </figure>`;
   el.innerHTML = `
     <div class="detail-grid">
@@ -597,6 +638,7 @@ function renderDetail() {
         <div class="stats">${stats}</div>
         ${pickUI}
         ${flipUI ? `<div class="pick-row">${flipUI}</div>` : ""}
+        <a class="btn buy" href="${esc(ligaUrl(c))}" target="_blank" rel="noopener noreferrer">${ICON.cart}<span>Buy on Liga Magic</span></a>
       </div>
     </div>`;
   const figEl = el.querySelector("#fig"), img = figEl.querySelector("img");
@@ -610,7 +652,7 @@ function renderDetail() {
     if (img.complete && img.naturalWidth) done(); else img.addEventListener("load", done, { once: true });
     img.addEventListener("error", fail, { once: true });
   }
-  const key = `${t.id}:${s.cursor}`;
+  const key = `${t.id}:${s.cursor}:${p.id}`;
   if (lastDetail !== key) el.scrollTop = 0;
   lastDetail = key;
 }
@@ -628,7 +670,7 @@ function renderBar() {
     label = one ? `Pick “${cards()[s.cursor].name}”` : exact(t) ? `Confirm ${s.sel.length}/${t.max}` : `Confirm ${plural(s.sel.length, "card")}`;
   }
   const b = $("#btn-confirm");
-  b.setAttribute("aria-disabled", String(!ok || !!s.result));
+  b.setAttribute("aria-disabled", String(!ok));
   b.innerHTML = `<span class="od-truncate">${esc(label)}</span><span class="kbd">⏎</span>`;
   const m = $("#status");
   m.className = `status ${msg ? msg.tone : ""}`;
@@ -639,12 +681,11 @@ function render() {
   const empty = !TABS.length;
   $("#app").classList.toggle("empty-app", empty);
   $("#idle").hidden = !empty;
-  $("#idle-title").textContent = offline ? "Server stopped" : "No requests waiting";
+  $("#idle-title").textContent = offline ? "Server stopped" : sent || "No requests waiting";
   $("#idle-text").textContent = offline
     ? "The card-picker server is not running. It starts again the next time your agent asks for a pick."
     : "Leave this tab open. When your agent asks you to look at or pick cards, the request shows up here.";
-  const waiting = TABS.filter(t => !STATE[t.id].result).length;
-  document.title = waiting ? `(${waiting}) Card picker` : "Card picker";
+  document.title = TABS.length ? `(${TABS.length}) Card picker` : "Card picker";
   renderTop();
   if (empty) return;
   renderList(); renderDetail(); renderBar();
@@ -669,7 +710,6 @@ function flip() {
 }
 function toggle(i = st().cursor) {
   const t = tab(), s = st(), C = cards();
-  if (s.result) return;
   if (t.mode !== "pick") { flash("View only — this request doesn't ask for a pick", "warn"); renderBar(); return; }
   if (!visible().length) return;
   const at = s.sel.indexOf(i);
@@ -688,7 +728,6 @@ function toggle(i = st().cursor) {
 }
 function confirm() {
   const t = tab(), s = st();
-  if (s.result) return;
   if (t.mode === "show") return send({ status: "closed", focused: s.cursor });
   if (single(t) && !s.sel.length && visible().length) s.sel = [s.cursor];
   if (!ready(t, s)) {
@@ -700,6 +739,8 @@ function confirm() {
 function body(note) {
   const t = tab(), s = st();
   const b = { status: "picked", picked: [...s.sel] };
+  const prints = Object.fromEntries(s.sel.filter(i => s.prints[i]).map(i => [i, s.prints[i]]));
+  if (Object.keys(prints).length) b.prints = prints;
   if (t.prompt) b.note = note || null;
   return b;
 }
@@ -714,43 +755,26 @@ async function send(b) {
   if (STATE[t.id] !== s) return;
   if (r.status === 410) { dropTab(t.id, `${t.agent} stopped waiting for “${t.ask}”`); return; }
   if (r.status !== 200) { flash(r.data.error || `Could not send (HTTP ${r.status})`, "warn"); render(); return; }
-  s.result = r.data; resultFor = t.id;
-  render();
-  const ok = r.data.code === 0;
-  $("#result-title").textContent = ok ? `Sent to ${t.agent}` : "Request cancelled";
-  $("#result-exit").className = `exit ${ok ? "ok" : "bad"}`;
-  $("#result-exit").innerHTML = `${ok ? ICON.check : ICON.x}<span>${ok ? "Answer delivered · exit 0" : `Cancelled · exit ${r.data.code}`}</span>`;
-  const others = TABS.filter(x => !STATE[x.id].result).length;
-  $("#result-note").textContent = `${t.agent} received this JSON.` + (others ? ` ${plural(others, "more request")} waiting.` : " You can close this tab or leave it open for the next request.");
-  $("#btn-result-close").innerHTML = `${others ? "Next request" : "Close"} <span class="kbd">⏎</span>`;
-  $("#result-out").innerHTML = highlight(JSON.stringify(r.data.answer, null, 2));
-  showDialog("#dlg-result", $("#btn-result-close"));
-}
-function highlight(json) {
-  // Tokenize the raw JSON, then escape each token: escaping first would let the
-  // number rule match inside entities like &#39;. What's left is punctuation.
-  return json.replace(/("(?:[^"\\]|\\.)*")(\s*:)?|\b(null|true|false|-?\d+(?:\.\d+)?)\b/g, (m, str, colon, lit) =>
-    str ? `<span class="${colon ? "k" : "s"}">${esc(str)}</span>${colon || ""}` : `<span class="n">${lit}</span>`);
-}
-function cancel() { if (!st().result) send({ status: "cancelled" }); }
-function closeResult() {
-  closeDialog(false);
-  const id = resultFor; resultFor = null;
-  TABS = TABS.filter(t => t.id !== id); delete STATE[id];
-  const next = TABS.findIndex(t => !STATE[t.id].result);
-  active = Math.max(0, next >= 0 ? next : Math.min(active, TABS.length - 1));
-  lastDetail = null; msg = null;
-  if (TABS.length) $("#filter").value = st().filter;
+  const done = r.data.code === 0 ? `Sent to ${t.agent}` : "Request cancelled";
+  removeTab(t.id);
+  sent = done;
+  if (TABS.length) flash(done, r.data.code === 0 ? "ok" : "warn");
   render(); $("#list").focus();
+}
+function cancel() { send({ status: "cancelled" }); }
+function removeTab(id) {
+  const i = TABS.findIndex(t => t.id === id); if (i < 0) return;
+  TABS.splice(i, 1); delete STATE[id];
+  if (active > i || active >= TABS.length) active = Math.max(0, active - 1);
+  if (TABS.length) $("#filter").value = st().filter;
+  lastDetail = null; msg = null;
 }
 function dropTab(id, why) {
   const i = TABS.findIndex(t => t.id === id); if (i < 0) return;
-  const wasActive = i === active;
-  if (wasActive && openDialog()) closeDialog(false);
-  TABS.splice(i, 1); delete STATE[id];
-  if (active > i || active >= TABS.length) active = Math.max(0, active - 1);
-  if (TABS.length) { $("#filter").value = st().filter; flash(why, "warn"); }
-  lastDetail = null; render();
+  if (i === active && openDialog()) closeDialog(false);
+  removeTab(id);
+  if (TABS.length) flash(why, "warn");
+  render();
 }
 function switchTab(i, focusTab) {
   if (openDialog() || !TABS.length) return;
@@ -792,27 +816,26 @@ async function poll() {
     const was = offline; offline = true;
     if (r && r.status === 401) { $("#idle-text").textContent = "This page is from an older server session. Open the link your agent printed most recently."; }
     if (!was) {
-      if (openDialog() && openDialog().id !== "dlg-result") closeDialog(false);
-      const keep = TABS.filter(t => STATE[t.id].result);
-      for (const t of TABS) if (!keep.includes(t)) delete STATE[t.id];
-      TABS = keep; active = Math.max(0, TABS.findIndex(t => t.id === resultFor)); render();
+      if (openDialog()) closeDialog(false);
+      for (const t of TABS) delete STATE[t.id];
+      TABS = []; active = 0; render();
     }
     return;
   }
   offline = false;
   const live = new Set(r.data.requests.map(q => q.id));
   // A tab being answered right now is already gone from the listing: send() owns it.
-  for (const t of [...TABS]) if (!live.has(t.id) && !STATE[t.id].result && !STATE[t.id].sending) dropTab(t.id, `${t.agent} stopped waiting for “${t.ask}”`);
+  for (const t of [...TABS]) if (!live.has(t.id) && !STATE[t.id].sending) dropTab(t.id, `${t.agent} stopped waiting for “${t.ask}”`);
   const fresh = r.data.requests.filter(q => !TABS.some(t => t.id === q.id));
   for (const q of fresh) {
     const full = await api("GET", `api/requests/${q.id}`);
     if (full.status !== 200 || TABS.some(t => t.id === q.id)) continue;
     const wasEmpty = !TABS.length;
+    sent = null;
     TABS.push(full.data); STATE[q.id] = freshState();
     if (wasEmpty) { active = 0; $("#filter").value = ""; render(); $("#list").focus(); }
     else { flash(`New request from ${q.agent}: ${q.ask}`, "ok"); render(); }
   }
-  if (!fresh.length && document.title.startsWith("(") !== TABS.some(t => !STATE[t.id].result)) render();
 }
 async function loop() { await poll(); setTimeout(loop, 1000); }
 
@@ -830,9 +853,11 @@ document.addEventListener("click", e => {
   }
   if (e.target.closest("#btn-pick")) { toggle(); return; }
   if (e.target.closest("#btn-flip")) { flip(); return; }
+  const ver = e.target.closest(".ver");
+  if (ver) { choosePrint(ver.dataset.print); return; }
   if (e.target.closest("#btn-confirm")) {
     const t = tab(), s = st();
-    if ($("#btn-confirm").getAttribute("aria-disabled") === "true") { if (!s.result) { flash(s.sel.length < t.min ? `Pick ${remaining(t, s)} more to confirm` : `Pick at most ${t.max}`, "warn"); renderBar(); } }
+    if ($("#btn-confirm").getAttribute("aria-disabled") === "true") { flash(s.sel.length < t.min ? `Pick ${remaining(t, s)} more to confirm` : `Pick at most ${t.max}`, "warn"); renderBar(); }
     else confirm();
     return;
   }
@@ -841,7 +866,6 @@ document.addEventListener("click", e => {
   if (act === "help-close" || act === "note-back") closeDialog();
   if (act === "note-skip") submitNote(true);
   if (act === "note-submit") submitNote(false);
-  if (act === "result-close") closeResult();
 });
 $("#list").addEventListener("dblclick", e => { if (e.target.closest(".row") && tab().mode === "show") confirm(); });
 $("#filter").addEventListener("input", e => { if (TABS.length) { st().filter = e.target.value; render(); } });
@@ -850,7 +874,6 @@ $("#filter").addEventListener("input", e => { if (TABS.length) { st().filter = e
 document.querySelectorAll("dialog").forEach(d => d.addEventListener("cancel", e => {
   e.preventDefault();
   if (d.id === "dlg-note") st().note = $("#note").value;
-  if (d.id === "dlg-result") { closeResult(); return; }
   closeDialog();
 }));
 
@@ -866,7 +889,6 @@ document.addEventListener("keydown", e => {
       if (e.ctrlKey || e.metaKey) { stop(); if (tab().promptOptional) submitNote(true); }
       else if (!e.shiftKey) { stop(); submitNote(false); }
     } else if (dlg.id === "dlg-help" && k === "?") { stop(); closeDialog(); }
-    else if (dlg.id === "dlg-result" && k === "Enter" && tgt.tagName !== "BUTTON") { stop(); closeResult(); }
     return;
   }
   if (!TABS.length) return;
@@ -898,6 +920,8 @@ document.addEventListener("keydown", e => {
     case "ArrowLeft": case "h": if (inDetail) { stop(); $("#list").focus(); } break;
     case " ": case "x": stop(); toggle(); break;
     case "f": stop(); flip(); break;
+    case "[": stop(); stepPrint(-1); break;
+    case "]": stop(); stepPrint(1); break;
     case "Enter": stop(); confirm(); break;
     case "/": stop(); $("#filter").focus(); $("#filter").select(); break;
     case "?": stop(); showDialog("#dlg-help", $('#dlg-help [data-act="help-close"]')); break;
