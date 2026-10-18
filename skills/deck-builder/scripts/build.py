@@ -46,6 +46,7 @@ UTILITY_TAGS = {t for tags in ROLE_TAGS.values() for t in tags}
 MAX_SHIFT = 3
 LANDS_RANGE = (33, 40)
 NO_BRAINER_INCLUSION = 0.5
+DEFAULT_SHORTLIST = 20
 ROUNDS = ("no-brainers",) + tuple(ROLE_TAGS) + ("theme", "lands")
 WUBRG = "WUBRG"
 
@@ -229,9 +230,9 @@ def cmd_init(args):
     cmd_cards, missing = resolve(commanders)
     if missing:
         print(f"commander not found on Scryfall: {', '.join(missing)} (a card of your own "
-              f"goes in {scryfall.custom_cards_path()})", file=sys.stderr)
+              f"goes in {scryfall.custom_cards_path().resolve()})", file=sys.stderr)
         return 2
-    fmt = str(meta.get("format") or "commander").strip().lower()
+    fmt = moxfield.canonical_format(meta.get("format"))
     custom = any(scryfall.is_custom(c) for c in cmd_cards.values())
     # EDHREC pages are named after the canonical card, not what the file says.
     commanders = [cmd_cards[card_key(n)]["name"] for n in commanders]
@@ -325,7 +326,8 @@ def cmd_pool(args):
                "basic land": []}
     keep = []
     limit = gc_limit(state["bracket"])
-    fmt = state.get("format") or "commander"
+    # The deck file decides the format; init's copy may be older than an edit.
+    fmt = state["format"] = moxfield.canonical_format(meta.get("format"))
     for n in names:
         c = cards.get(card_key(n))
         if not c:
@@ -419,7 +421,13 @@ def cmd_round(args):
 
     rows = sorted(((n, d) for n, d in pool.items() if keep(d)),
                   key=lambda x: (-(x[1]["inclusion"] or -1), -(x[1]["synergy"] or 0), x[0]))
-    rows = rows[:args.limit]
+    matching = len(rows)
+    # Without EDHREC inclusion (a custom commander) the order is alphabetical,
+    # so a default cap would hide cards by name: show them all.
+    limit = args.limit
+    if limit is None:
+        limit = DEFAULT_SHORTLIST if any(d["inclusion"] is not None for _, d in rows) else None
+    rows = rows[:limit]
     commander = " + ".join(state["commanders"])
     out = []
     for n, d in rows:
@@ -448,7 +456,8 @@ def cmd_round(args):
         need = f"need {max(lands['target'] - lands['have'], 0)} ({lands['have']}/{lands['target']})"
     else:
         need = f"need: open slots {open_slots}"
-    print(f"{args.role}: {len(out)} of {len(pool)} pool cards -> {args.out}; {need}")
+    more = f" (first {len(out)} of {matching}; --limit for more)" if len(out) < matching else ""
+    print(f"{args.role}: {len(out)} of {len(pool)} pool cards{more} -> {args.out}; {need}")
     return 0
 
 
@@ -607,7 +616,9 @@ def main(argv=None):
     p.add_argument("deck")
     p.add_argument("role", help=", ".join(ROUNDS))
     p.add_argument("--out", required=True, metavar="FILE")
-    p.add_argument("--limit", type=int, default=20)
+    p.add_argument("--limit", type=int, default=None,
+                   help=f"shortlist size (default {DEFAULT_SHORTLIST}; all when nothing is "
+                        "ranked by EDHREC inclusion)")
     p.set_defaults(fn=cmd_round)
 
     p = sub.add_parser("apply", help="apply a card-picker answer")

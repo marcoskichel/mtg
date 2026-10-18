@@ -115,6 +115,7 @@ Targets, the template and how `init` adjusts them: `references/template.md`.
   4.4), never as a reflex to clear `STALE`.
 - **A custom commander has no EDHREC data.** `init` uses the template targets
   and `pool` adds only your searches and the Maybeboard, so search every role
-  and theme the Plan names. Moxfield can't hold the card: skip the upload offer.
+  and theme the Plan names. With nothing to rank by, `round` lists every
+  matching card (alphabetical), so grade the whole list. Moxfield can't hold the card: skip the upload offer.
 - **A misspelled commander** is fixed by `init`: it writes Scryfall's name
   back to the deck file, and EDHREC is read under that name.

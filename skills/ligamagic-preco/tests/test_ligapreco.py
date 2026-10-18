@@ -1,8 +1,13 @@
 """Tests for ligapreco.py with the network simulated. Run: python3 -m unittest discover -s tests"""
 
+import io
+import json
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import ligapreco  # noqa: E402
@@ -29,6 +34,35 @@ class ParseSections(unittest.TestCase):
 
     def test_blank_lines_split_sections_without_headers(self):
         self.assertEqual(counts("4 Bolt\n2 Path\n\n1 Duress\n"), {"main": 6, "side": 1})
+
+
+class CustomCards(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        path = Path(self.tmp.name) / "custom.json"
+        path.write_text(json.dumps([{"name": "Giovanni, Suporte Lateral",
+                                     "type_line": "Legendary Creature"}]), encoding="utf-8")
+        env = mock.patch.dict(os.environ, {ligapreco.scryfall.CUSTOM_ENV: str(path)})
+        env.start()
+        self.addCleanup(env.stop)
+        ligapreco.scryfall._custom_cache.clear()
+        self.addCleanup(ligapreco.scryfall._custom_cache.clear)
+
+    def test_custom_card_is_left_out_without_asking_the_liga(self):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(ligapreco.NameResolver, "_lookup") as lookup, \
+                mock.patch.object(ligapreco.PriceClient, "get") as get, \
+                mock.patch.object(ligapreco.NameResolver, "save"), \
+                mock.patch.object(ligapreco.PriceClient, "save"), \
+                mock.patch.object(sys, "stdout", out), mock.patch.object(sys, "stderr", err):
+            code = ligapreco.main(["--json", "--no-cache", "giovanni, suporte lateral"])
+        self.assertEqual(code, 0)
+        self.assertFalse(lookup.called or get.called)
+        data = json.loads(out.getvalue())
+        self.assertEqual((data["total"], data["completo"]), (0, True))
+        self.assertEqual(data["cartas"][0]["status"], "carta custom")
+        self.assertEqual(data["cartas"][0]["liga"], "Giovanni, Suporte Lateral")
 
 
 if __name__ == "__main__":

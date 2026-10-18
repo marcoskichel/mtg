@@ -133,7 +133,9 @@ be a typo fixed by fuzzy, it may be the wrong card.
 
 **`validate` knows Commander and Pauper Commander, not other formats in depth.**
 `paupercommander` gets the full Commander checks, and its commander must be a
-creature Scryfall accepts there (printed at uncommon). For other `Format:` lines
+creature Scryfall accepts there (printed at uncommon). Other spellings
+(`pauperEdh`, Moxfield's own id, `PDH`, `Pauper Commander`) read as
+`paupercommander`; `pull` writes the Scryfall name. For other `Format:` lines
 it checks only names and legality; deck size and singleton are up to you.
 
 **Custom cards can't go to Moxfield.** A card from the custom cards file

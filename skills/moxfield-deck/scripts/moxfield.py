@@ -55,6 +55,9 @@ SECTION_HEADERS = {
 }
 # Formats with a commander, a 100-card singleton deck and color identity.
 COMMANDER_FORMATS = ("commander", "paupercommander")
+# Other spellings of a format -> Scryfall's legality key. Moxfield's own id for
+# Pauper Commander is pauperEdh.
+FORMAT_ALIASES = {"edh": "commander", "pauperedh": "paupercommander", "pdh": "paupercommander"}
 # Counts as "deck" toward the 100 total: commander + companion + main.
 # Sideboard on Moxfield is an auxiliary list; maybeboard is under consideration.
 DECK_BOARDS = ("commanders", "companions", "mainboard")
@@ -71,6 +74,12 @@ BASIC_TYPES = ("Plains", "Island", "Swamp", "Mountain", "Forest", "Wastes")
 # Metadata keys are canonical in English; the Portuguese ones older deck files
 # use (`// Nome:`, `// Formato:`) still parse as aliases.
 META_ALIASES = {"nome": "name", "formato": "format", "visibilidade": "visibility"}
+
+
+def canonical_format(fmt):
+    """'Pauper Commander', 'pauperEdh', 'PDH' -> 'paupercommander'; empty -> 'commander'."""
+    key = re.sub(r"[\s_-]+", "", str(fmt or "")).lower()
+    return FORMAT_ALIASES.get(key, key) or "commander"
 
 
 def fold(s):
@@ -331,7 +340,7 @@ def deck_from_moxfield(data):
     meta = {
         "moxfield": data.get("publicUrl") or "",
         "name": data.get("name") or "",
-        "format": data.get("format") or "",
+        "format": canonical_format(data.get("format")) if data.get("format") else "",
         "visibility": data.get("visibility") or "",
     }
     if data.get("bracket"):
@@ -362,12 +371,16 @@ class Scryfall:
         status, data = _get_json(url, {"User-Agent": UA_SCRY, "Accept": "application/json"})
         return data if status == 200 else None
 
-    def pdh_commander(self, name):
-        """True when Scryfall lets the card lead a Pauper Commander deck."""
-        url = SCRY_SEARCH + "?" + urllib.parse.urlencode({"q": '!"%s" is:paupercommander' % name})
+    def pdh_commander(self, card):
+        """Can the card lead a Pauper Commander deck? None when Scryfall didn't answer."""
+        # oracleid needs no quoting; a name with '"' in it would break !"..."
+        what = "oracleid:" + card["oracle_id"] if card.get("oracle_id") else '!"%s"' % card["name"]
+        url = SCRY_SEARCH + "?" + urllib.parse.urlencode({"q": what + " is:paupercommander"})
         time.sleep(self.delay)
         status, data = _get_json(url, {"User-Agent": UA_SCRY, "Accept": "application/json"})
-        return status == 200 and bool(data.get("data"))
+        if status == 200:
+            return bool(data.get("data"))
+        return False if status == 404 else None
 
     def resolve(self, names):
         """-> {requested_name: card_json | None}. Custom cards first, then batches
@@ -489,7 +502,11 @@ def validate(boards, fmt="commander", scry=None, out=sys.stderr):
             if scryfall.is_custom(sc):
                 pass
             elif fmt == "paupercommander":
-                if not scry.pdh_commander(sc["name"]):
+                ok = scry.pdh_commander(sc)
+                if ok is None:
+                    warnings.append("could not ask Scryfall whether %s can lead a Pauper "
+                                    "Commander deck; run validate again" % c.name)
+                elif not ok:
                     problems.append("cannot lead a Pauper Commander deck (needs a creature "
                                     "printed at uncommon): %s" % c.name)
             elif not can_be_commander(sc):
@@ -516,8 +533,9 @@ def validate(boards, fmt="commander", scry=None, out=sys.stderr):
         if not sc or scryfall.is_custom(sc):
             continue
         leg = (sc.get("legalities") or {}).get(fmt)
-        # A Pauper Commander commander is usually an uncommon: not legal in the 99.
-        if fmt == "paupercommander" and c.board == "commanders":
+        # A Pauper Commander commander is usually an uncommon: not legal in the 99,
+        # but a banned one is still banned.
+        if fmt == "paupercommander" and c.board == "commanders" and leg == "not_legal":
             continue
         if leg in ("banned", "not_legal"):
             problems.append("%s in %s: %s" % (leg, fmt, c.name))
@@ -604,7 +622,7 @@ def cmd_validate(a):
     boards, meta = parse_deck(_read(a.deck))
     if "_warning" in meta:
         print("WARNING " + meta["_warning"], file=sys.stderr)
-    fmt = a.format or meta.get("format") or "commander"
+    fmt = canonical_format(a.format or meta.get("format"))
     ok = validate(boards, fmt, None if a.offline else Scryfall(a.delay))
     return 0 if ok else 1
 

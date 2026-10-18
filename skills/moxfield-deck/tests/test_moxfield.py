@@ -273,7 +273,6 @@ class ReadCardList(unittest.TestCase):
                                                    (2, "Swamp")])
 
 
-
 class PauperCommander(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -291,7 +290,7 @@ class PauperCommander(unittest.TestCase):
 
     def run_validate(self, cmds, main, db, pdh_ok=()):
         scry = FakeScry(db)
-        scry.pdh_commander = lambda name: name in pdh_ok
+        scry.pdh_commander = lambda card: card["name"] in pdh_ok
         boards = {b: [] for b in mx.BOARDS}
         boards["commanders"] = [mx.Card(1, n, "commanders") for n in cmds]
         boards["mainboard"] = [mx.Card(q, n, "mainboard") for q, n in main]
@@ -336,6 +335,54 @@ class PauperCommander(unittest.TestCase):
         self.assertTrue(got["Giovanni"]["custom"])
         self.assertIsNone(got["Nope"])
         self.assertEqual(post.call_args[0][0], [{"name": "Nope"}])
+
+
+class FormatsAndPdhCheck(unittest.TestCase):
+    def test_canonical_format(self):
+        for raw, want in (("pauperEdh", "paupercommander"), ("Pauper Commander", "paupercommander"),
+                          ("PDH", "paupercommander"), ("EDH", "commander"), ("", "commander"),
+                          (None, "commander"), ("modern", "modern")):
+            self.assertEqual(mx.canonical_format(raw), want, raw)
+
+    def pdh(self, status, data):
+        scry = mx.Scryfall(delay=0)
+        with mock.patch.object(mx, "_get_json", return_value=(status, data)) as get:
+            got = scry.pdh_commander({"name": 'Kongming, "Sleeping Dragon"', "oracle_id": "abc"})
+        return got, get.call_args[0][0]
+
+    def test_pdh_commander_answers(self):
+        got, url = self.pdh(200, {"data": [{}]})
+        self.assertIs(got, True)
+        self.assertIn("oracleid%3Aabc+is%3Apaupercommander", url)
+        self.assertIs(self.pdh(404, {})[0], False)
+        self.assertIsNone(self.pdh(429, {})[0])
+
+    def test_unanswered_check_is_a_warning(self):
+        db = {"X": card("X", "Creature", "B"), "Swamp": card("Swamp", "Basic Land — Swamp")}
+        db["X"]["legalities"] = {"paupercommander": "not_legal"}
+        db["Swamp"]["legalities"] = {"paupercommander": "legal"}
+        scry = FakeScry(db)
+        scry.pdh_commander = lambda c: None
+        boards = {b: [] for b in mx.BOARDS}
+        boards["commanders"] = [mx.Card(1, "X", "commanders")]
+        boards["mainboard"] = [mx.Card(99, "Swamp", "mainboard")]
+        out = io.StringIO()
+        self.assertTrue(mx.validate(boards, "paupercommander", scry, out=out))
+        self.assertIn("could not ask Scryfall", out.getvalue())
+
+    def test_banned_commander_is_flagged(self):
+        db = {"X": card("X", "Creature", "B"), "Swamp": card("Swamp", "Basic Land — Swamp")}
+        db["X"]["legalities"] = {"paupercommander": "banned"}
+        db["Swamp"]["legalities"] = {"paupercommander": "legal"}
+        scry = FakeScry(db)
+        scry.pdh_commander = lambda c: True
+        boards = {b: [] for b in mx.BOARDS}
+        boards["commanders"] = [mx.Card(1, "X", "commanders")]
+        boards["mainboard"] = [mx.Card(99, "Swamp", "mainboard")]
+        out = io.StringIO()
+        self.assertFalse(mx.validate(boards, "paupercommander", scry, out=out))
+        self.assertIn("banned in paupercommander: X", out.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()
