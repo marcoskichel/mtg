@@ -31,6 +31,7 @@ python3 $P show --deck decks/saruman.txt
 
 2. **Ask.** Set `--title` to the question as the user would say it, and set
    `--count` to how many the answer needs: `N` exact, `N-M` a range, `any` = at least one.
+   The minimum is 1: a user who wants none of them cancels (exit 130).
    Add `--prompt` when you need the why (`--prompt-optional` when it's a
    nice-to-have). Run the command **in the background** (Claude Code:
    `run_in_background: true`) because it blocks until the user answers, for
@@ -59,7 +60,10 @@ python3 $P show --deck decks/saruman.txt
 The first call starts a local server on `127.0.0.1:8737` (env
 `CARD_PICKER_PORT`), and every later call reuses it. Each waiting call is a tab on
 the same page, so parallel agents share one browser tab, and a new tab opens only
-when none is connected (`--no-open` prints the URL instead). The server
+when none is connected (`--no-open` prints the URL instead). Requests from every agent
+on the machine stack on that page, so when the user says the page is empty or
+shows a question you didn't ask, another agent's request is open: have them
+switch tabs, or answer or cancel that one. The server
 exits after 15 idle minutes, and a call that finds a server running older code replaces it
 once nothing is waiting on it. Log, token and cached images live in `~/.cache/mtg-skills/card-picker/`.
 Tests: `python3 -m unittest discover -s skills/card-picker/tests`.
