@@ -41,6 +41,7 @@ FUZZY_MIN_RATIO = 0.75
 CUSTOM_ENV = "MTG_CUSTOM_CARDS"
 CUSTOM_DEFAULT = Path("cards") / "custom.json"
 MANA_SYMBOL_RE = re.compile(r"\{([^}]+)\}")
+REMINDER_RE = re.compile(r"\([^)]*\)")
 
 SECTION_HEADERS = {
     "deck": "main", "main": "main", "maindeck": "main", "main deck": "main",
@@ -317,8 +318,10 @@ def custom_card(raw, base=None):
     card.setdefault("cmc", _mana_value(cost))
     card.setdefault("oracle_text", "")
     card.setdefault("colors", _symbol_colors(cost))
-    card.setdefault("color_identity",
-                    _symbol_colors(cost + " " + (card.get("oracle_text") or "")))
+    # Identity: cost, rules text without reminder text, and given colors (rule 903.4).
+    text = REMINDER_RE.sub("", card.get("oracle_text") or "")
+    card.setdefault("color_identity", [c for c in "WUBRG" if c in set(
+        _symbol_colors(cost + " " + text)) | set(card["colors"])])
     card.setdefault("keywords", [])
     card.setdefault("legalities", {})
     card.setdefault("set", "custom")
@@ -441,7 +444,7 @@ class Report:
         out = out or sys.stderr
         if self.custom:
             print(f"Custom cards, not on Scryfall ({len(self.custom)}): "
-                  f"{', '.join(self.custom)}  [from {custom_cards_path()}]", file=out)
+                  f"{', '.join(self.custom)}  [from {custom_cards_path().resolve()}]", file=out)
         if self.warnings:
             for w in self.warnings:
                 print(f"SCRYFALL WARNING: {w}", file=out)
@@ -455,6 +458,10 @@ class Report:
             print(f"NOT FOUND on Scryfall ({len(self.missing)}):", file=out)
             for name, hint in self.missing.items():
                 print(f"  {name}" + (f"\n      {hint}" if hint else ""), file=out)
+            path = custom_cards_path().resolve()
+            if not path.is_file():
+                print(f"  (no custom cards file at {path}: a card of your own goes there)",
+                      file=out)
 
     @property
     def failed(self):

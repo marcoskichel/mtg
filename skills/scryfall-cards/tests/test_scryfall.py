@@ -355,7 +355,6 @@ class Retry(unittest.TestCase):
         self.assertTrue(any(k.lower() == "accept" for k in seen))
 
 
-
 GIOVANNI = {
     "name": "Giovanni, Suporte Lateral", "mana_cost": "{1}{W}{B}",
     "type_line": "Legendary Creature — Human Advisor", "power": "1", "toughness": "3",
@@ -427,6 +426,27 @@ class CustomCards(unittest.TestCase):
     def test_card_output_marks_custom(self):
         c = scryfall.custom_card(dict(GIOVANNI))
         self.assertIn("[custom card]", scryfall.format_card(c, []))
+
+
+class CustomIdentity(unittest.TestCase):
+    def test_reminder_text_does_not_count(self):
+        c = scryfall.custom_card({"name": "X", "type_line": "Creature", "mana_cost": "{W}",
+                                  "oracle_text": "Extort (you may pay {W/B}.)"})
+        self.assertEqual(c["color_identity"], ["W"])
+
+    def test_given_colors_count(self):
+        c = scryfall.custom_card({"name": "X", "type_line": "Creature", "colors": ["G"]})
+        self.assertEqual(c["color_identity"], ["G"])
+
+    def test_missing_names_point_at_the_custom_file(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.dict(os.environ, {scryfall.CUSTOM_ENV: tmp + "/none.json"}):
+            report = scryfall.Report()
+            report.missing["Giovanni"] = ""
+            err = io.StringIO()
+            report.emit(err)
+        self.assertIn("no custom cards file at", err.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()
