@@ -43,6 +43,12 @@ CUSTOM_DEFAULT = Path("cards") / "custom.json"
 MANA_SYMBOL_RE = re.compile(r"\{([^}]+)\}")
 REMINDER_RE = re.compile(r"\([^)]*\)")
 
+# Other spellings of a format -> Scryfall's legality key. Moxfield's own id for
+# Pauper Commander is pauperEdh.
+FORMAT_ALIASES = {"edh": "commander", "pauperedh": "paupercommander", "pdh": "paupercommander"}
+DECK_FORMAT_RE = re.compile(r"^\s*(?://|#)?\s*(?:format|formato)\s*:\s*(\S.*?)\s*$", re.I | re.M)
+QUERY_FORMAT_RE = re.compile(r"(?<![-\w])(?:f|format|legal)[:=](\w+)", re.I)
+
 SECTION_HEADERS = {
     "deck": "main", "main": "main", "maindeck": "main", "main deck": "main",
     "mainboard": "main", "principal": "main",
@@ -489,6 +495,20 @@ def _pt(face):
     return ""
 
 
+def canonical_format(fmt):
+    """'Pauper Commander', 'pauperEdh', 'PDH' -> 'paupercommander'; empty -> 'commander'."""
+    key = re.sub(r"[\s_-]+", "", str(fmt or "")).lower()
+    return FORMAT_ALIASES.get(key, key) or "commander"
+
+
+def default_formats(deck_text=None, query=None):
+    """Legalities to show without --formats: the deck's `// Format:` or the
+    query's `f:`, else commander. A Pauper Commander deck reads paupercommander."""
+    m = (DECK_FORMAT_RE.search(deck_text) if deck_text else None) or \
+        (QUERY_FORMAT_RE.search(query) if query else None)
+    return [canonical_format(m.group(1) if m else None)]
+
+
 def format_card(card, formats, rulings=None):
     lines = []
     name = card.get("name", "?")
@@ -568,6 +588,7 @@ def cmd_card(args):
             print("no card recognized in the input", file=sys.stderr)
             return 2
     elif args.names:
+        text = None
         sections = {k: [] for k in SECTIONS}
         sections["main"] = [Entry(1, n) for n in args.names]
     else:
@@ -577,7 +598,8 @@ def cmd_card(args):
     entries = [e for s in SECTIONS for e in sections[s]]
     report = Report()
     found, _ = resolve_names([e.name for e in entries], report)
-    formats = [f.strip() for f in args.formats.split(",") if f.strip()]
+    formats = ([f.strip() for f in args.formats.split(",") if f.strip()] if args.formats
+               else default_formats(deck_text=text))
 
     rulings = {}
     for e in entries:
@@ -747,8 +769,9 @@ def main(argv=None):
     p.add_argument("names", nargs="*", help="names (EN or PT; 'A // B' accepted)")
     p.add_argument("-d", "--deck", metavar="FILE",
                    help="decklist in any format; - for stdin")
-    p.add_argument("--formats", default="commander",
-                   help="legalities to show, comma-separated (default: commander)")
+    p.add_argument("--formats",
+                   help="legalities to show, comma-separated (default: the deck's "
+                        "// Format:, else commander)")
     p.add_argument("--rulings", action="store_true", help="include rulings")
     p.set_defaults(fn=cmd_card)
 

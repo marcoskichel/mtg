@@ -55,9 +55,6 @@ SECTION_HEADERS = {
 }
 # Formats with a commander, a 100-card singleton deck and color identity.
 COMMANDER_FORMATS = ("commander", "paupercommander")
-# Other spellings of a format -> Scryfall's legality key. Moxfield's own id for
-# Pauper Commander is pauperEdh.
-FORMAT_ALIASES = {"edh": "commander", "pauperedh": "paupercommander", "pdh": "paupercommander"}
 # Counts as "deck" toward the 100 total: commander + companion + main.
 # Sideboard on Moxfield is an auxiliary list; maybeboard is under consideration.
 DECK_BOARDS = ("commanders", "companions", "mainboard")
@@ -76,10 +73,7 @@ BASIC_TYPES = ("Plains", "Island", "Swamp", "Mountain", "Forest", "Wastes")
 META_ALIASES = {"nome": "name", "formato": "format", "visibilidade": "visibility"}
 
 
-def canonical_format(fmt):
-    """'Pauper Commander', 'pauperEdh', 'PDH' -> 'paupercommander'; empty -> 'commander'."""
-    key = re.sub(r"[\s_-]+", "", str(fmt or "")).lower()
-    return FORMAT_ALIASES.get(key, key) or "commander"
+canonical_format = scryfall.canonical_format
 
 
 def fold(s):
