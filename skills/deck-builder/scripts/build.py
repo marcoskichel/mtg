@@ -416,12 +416,25 @@ def cmd_round(args):
         if args.role == "lands":
             return d["land"]
         if args.role == "theme":
-            return not d["land"] and not (set(d["roles"]) & UTILITY_TAGS)
+            # Every spell still in the pool: a draw or removal card declined in
+            # its role round may still be what the theme wants (a wall that draws).
+            return not d["land"]
         return bool(set(d["roles"]) & set(ROLE_TAGS[args.role]))
 
+    def utility(d):
+        return args.role == "theme" and bool(set(d["roles"]) & UTILITY_TAGS)
+
+    # Theme puts its own cards first, the role cards it inherited after.
     rows = sorted(((n, d) for n, d in pool.items() if keep(d)),
-                  key=lambda x: (-(x[1]["inclusion"] or -1), -(x[1]["synergy"] or 0), x[0]))
+                  key=lambda x: (utility(x[1]), -(x[1]["inclusion"] or -1),
+                                 -(x[1]["synergy"] or 0), x[0]))
     matching = len(rows)
+    if args.role == "no-brainers" and not any(d["inclusion"] is not None
+                                              for d in pool.values()):
+        Path(args.out).write_text("[]\n", encoding="utf-8")
+        print("no-brainers: nothing in the pool has EDHREC inclusion data (a custom "
+              "commander or no commander page), so there is nothing to rank; skip to ramp")
+        return 0
     # Without EDHREC inclusion (a custom commander) the order is alphabetical,
     # so a default cap would hide cards by name: show them all.
     limit = args.limit
@@ -438,6 +451,8 @@ def cmd_round(args):
             bits.append(f"synergy {d['synergy']:+.0%}")
         if d["roles"]:
             bits.append("roles: " + ", ".join(d["roles"]))
+        if d.get("declined"):
+            bits.append("declined in: " + ", ".join(d["declined"]))
         if d["gc"]:
             bits.append("GAME CHANGER")
         bits.append("source: " + ", ".join(d["sources"]))
@@ -455,7 +470,7 @@ def cmd_round(args):
     elif args.role == "lands":
         need = f"need {max(lands['target'] - lands['have'], 0)} ({lands['have']}/{lands['target']})"
     else:
-        need = f"need: open slots {open_slots}"
+        need = f"open slots {open_slots}"
     more = f" (first {len(out)} of {matching}; --limit for more)" if len(out) < matching else ""
     print(f"{args.role}: {len(out)} of {len(pool)} pool cards{more} -> {args.out}; {need}")
     return 0
@@ -527,7 +542,8 @@ def _reject_rest(state, boards, role, offered, picked):
     """Offered but not picked leaves the pool, unless another round still wants it.
 
     No-brainers declined stay for their role round; a card with several roles
-    (Path to Exile: removal and ramp) stays until each of its role rounds ran.
+    (Path to Exile: removal and ramp) stays until each of its role rounds ran;
+    a spell declined in a role round stays for theme, which offers every spell.
     """
     if role in ("cut", "no-brainers"):
         return []
@@ -540,7 +556,11 @@ def _reject_rest(state, boards, role, offered, picked):
         pending = set(roles_to_groups(row.get("roles") or [])) - done
         if row.get("land") and "lands" not in done:
             pending.add("lands")
+        if not row.get("land") and role != "theme":
+            pending.add("theme")
         if pending:
+            if row and role not in row.setdefault("declined", []):
+                row["declined"].append(role)
             continue
         boards["maybeboard"] = [c for c in boards["maybeboard"]
                                 if card_key(c.name) != card_key(name)]
