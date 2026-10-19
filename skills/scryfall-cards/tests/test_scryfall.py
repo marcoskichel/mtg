@@ -177,6 +177,24 @@ class CardCmd(unittest.TestCase):
         self.assertIn("Bolt the bird.", out)
         self.assertIn("2020-01-01", out)
 
+    def test_deck_format_picks_the_legality_shown(self):
+        bolt = card("Lightning Bolt")
+        text = "// Format: Pauper Commander\n\n// Mainboard\n1 Lightning Bolt\n"
+        with mock.patch.object(sys, "stdin", io.StringIO(text)):
+            code, out, err, calls = run(["card", "-d", "-"],
+                                        [("/cards/collection", collection([bolt]))])
+        self.assertEqual(code, 0)
+        self.assertIn("legality: paupercommander:", out)
+
+    def test_default_formats(self):
+        self.assertEqual(scryfall.default_formats(), ["commander"])
+        self.assertEqual(scryfall.default_formats(deck_text="// Formato: pdh\n1 X\n"),
+                         ["paupercommander"])
+        self.assertEqual(scryfall.default_formats(query="otag:removal f:paupercommander"),
+                         ["paupercommander"])
+        self.assertEqual(scryfall.default_formats(query="otag:removal -f:modern"),
+                         ["commander"])
+
     def test_deck_from_stdin_batches_75(self):
         names = [f"Card {i}" for i in range(80)]
         text = "\n".join(f"1 {n}" for n in names)

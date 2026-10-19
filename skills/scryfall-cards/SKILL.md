@@ -22,7 +22,7 @@ S=$SKILLS/scryfall-cards/scripts/scryfall.py
 
 # oracle text, one or many cards (EN or PT, "A // B" accepted)
 python3 $S card "Brash Taunter" "Raio" "Delver of Secrets"
-python3 $S card -d deck.txt            # whole decklist, batched
+python3 $S card -d deck.txt            # whole decklist, batched; legality in its // Format:
 python3 $S card "Edgar Markov" --formats commander,modern --rulings
 
 # search with Scryfall syntax

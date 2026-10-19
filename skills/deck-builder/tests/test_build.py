@@ -276,9 +276,20 @@ class RoundTest(Base):
         self.assertEqual([d["name"] for d in data],
                          ["Command Tower", "Captivating Vampire", "Swords to Plowshares"])
 
-    def test_theme_excludes_utility_roles_and_lands(self):
+    def test_theme_offers_every_spell_its_own_first(self):
         code, _, data = self.round("theme")
-        self.assertEqual([d["name"] for d in data], ["Captivating Vampire", "Bloodghast"])
+        self.assertEqual([d["name"] for d in data], ["Captivating Vampire", "Bloodghast",
+                                                     "Swords to Plowshares", "Arcane Signet"])
+
+    def test_no_brainers_without_inclusion_says_skip(self):
+        st = self.state()
+        for row in st["pool"].values():
+            row["inclusion"] = None
+        build.save_state(self.deck, st)
+        code, out, data = self.round("no-brainers")
+        self.assertEqual((code, data), (0, []))
+        self.assertIn("skip to ramp", out)
+        self.assertNotIn("open slots", out)
 
     def test_lands_round(self):
         code, _, data = self.round("lands")
@@ -338,9 +349,9 @@ class ApplyTest(Base):
     def test_pick_not_in_offer_changes_nothing(self):
         before = self.deck.read_text()
         code, _, err = self.apply({"status": "picked", "picked": [
-            {"name": "Swords to Plowshares", "set": "a25", "collector_number": "35"}]})
+            {"name": "Command Tower", "set": "cmm", "collector_number": "1"}]})
         self.assertEqual(code, 1)
-        self.assertIn("Swords to Plowshares", err)
+        self.assertIn("Command Tower", err)
         self.assertEqual(self.deck.read_text(), before)
         self.assertEqual(self.state()["rejected"], [])
 
@@ -477,8 +488,7 @@ class ReviewFixesTest(Base):
         self.run_cli(["pool", str(self.deck)], PAGES)
         out = self.dir / "t.json"
         self.run_cli(["round", str(self.deck), "theme", "--out", str(out)], PAGES)
-        self.assertEqual([d["name"] for d in json.loads(out.read_text())],
-                         ["Captivating Vampire"])
+        self.assertNotIn("Bloodghast", [d["name"] for d in json.loads(out.read_text())])
         self.assertEqual(self.state()["rejected"], ["Bloodghast"])
 
     def test_commander_name_comes_from_scryfall(self):
@@ -521,6 +531,23 @@ class ReviewFixesTest(Base):
         out2 = self.dir / "removal.json"
         self.run_cli(["round", str(self.deck), "removal", "--out", str(out2)], PAGES)
         self.assertIn("Path to Exile", [d["name"] for d in json.loads(out2.read_text())])
+
+    def test_role_round_decline_waits_for_theme(self):
+        self.init_pool()
+        ans = self.dir / "ans.json"
+        ans.write_text(json.dumps({"status": "picked", "picked": []}))
+        removal = self.dir / "removal.json"
+        self.run_cli(["round", str(self.deck), "removal", "--out", str(removal)], PAGES)
+        self.run_cli(["apply", str(self.deck), "--answer", str(ans), "--offered",
+                      str(removal)], PAGES)
+        self.assertNotIn("Swords to Plowshares", self.state()["rejected"])
+        theme = self.dir / "theme.json"
+        self.run_cli(["round", str(self.deck), "theme", "--out", str(theme)], PAGES)
+        offer = {d["name"]: d["reason"] for d in json.loads(theme.read_text())}
+        self.assertIn("declined in: removal", offer["Swords to Plowshares"])
+        self.run_cli(["apply", str(self.deck), "--answer", str(ans), "--offered",
+                      str(theme)], PAGES)
+        self.assertIn("Swords to Plowshares", self.state()["rejected"])
 
     def test_apply_leaves_the_profile_alone(self):
         self.init_pool()

@@ -51,8 +51,10 @@ K=$SKILLS/card-picker/scripts/picker.py
 
 3. **Pool.** Search for what the Plan needs beyond EDHREC's lists with
    `card-finder` (one `find --json` per theme or role the profile names, with
-   `f:<format>` from the deck file),
-   collect the names in a file, then `$B pool <deck> --extra <file>`. It adds
+   `f:<format>` from the deck file). `find` stops at 50 cards, most played
+   first, and its stderr says `N card(s) in total, M shown`: when M < N, narrow
+   the query or pass `--all`, or the cards past the cut never reach the pool.
+   Collect the names in a file, then `$B pool <deck> --extra <file>`. It adds
    EDHREC's cards for this commander, the average deck and your searches,
    minus off-identity, banned, over-budget and (bracket 1–2) game changer
    cards, and reports each drop. Done when the Maybeboard holds the pool and
@@ -81,8 +83,11 @@ K=$SKILLS/card-picker/scripts/picker.py
       profile.
    Picked cards move to the Mainboard with the printing the user chose. An
    unpicked card leaves the pool once every round it qualifies for has run:
-   declined no-brainers wait for their role round, and Path to Exile
-   (removal and ramp) survives the ramp round to be offered for removal. Done when every role's need is 0 or the
+   declined no-brainers wait for their role round, Path to Exile (removal and
+   ramp) survives the ramp round to be offered for removal, and a spell
+   declined in its role round waits for `theme`, which offers every spell
+   left in the pool, the theme's own first (a wall that draws a card can lose
+   the draw round and still win the theme one). Done when every role's need is 0 or the
    user has said it's enough.
 
 5. **Fill or cut.** `$B status <deck>`. Under 100: run `theme` again for
@@ -115,7 +120,8 @@ Targets, the template and how `init` adjusts them: `references/template.md`.
   4.4), never as a reflex to clear `STALE`.
 - **A custom commander has no EDHREC data.** `init` uses the template targets
   and `pool` adds only your searches and the Maybeboard, so search every role
-  and theme the Plan names. With nothing to rank by, `round` lists every
-  matching card (alphabetical), so grade the whole list. Moxfield can't hold the card: skip the upload offer.
+  and theme the Plan names, `--all` on each. With nothing to rank by,
+  `no-brainers` is empty (start at `ramp`) and `round` lists every matching
+  card (alphabetical), so grade the whole list. Moxfield can't hold the card: skip the upload offer.
 - **A misspelled commander** is fixed by `init`: it writes Scryfall's name
   back to the deck file, and EDHREC is read under that name.

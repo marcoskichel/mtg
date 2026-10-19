@@ -304,7 +304,8 @@ def cmd_find(args):
     if not args.all:
         cards = cards[:args.limit]
 
-    formats = [f.strip() for f in args.formats.split(",") if f.strip()]
+    formats = ([f.strip() for f in args.formats.split(",") if f.strip()] if args.formats
+               else scryfall.default_formats(query=args.query))
     if args.json:
         out = []
         for c in cards:
@@ -419,8 +420,9 @@ def main(argv=None):
     p.add_argument("--limit", type=int, default=50, metavar="N",
                    help="maximum cards shown (default 50)")
     p.add_argument("--all", action="store_true", help="follow every page")
-    p.add_argument("--formats", default="commander",
-                   help="legalities to show, comma-separated (default: commander)")
+    p.add_argument("--formats",
+                   help="legalities to show, comma-separated (default: the query's f:, "
+                        "else commander)")
     p.add_argument("--delay", type=float, default=scryfall.DEFAULT_DELAY, metavar="SEC",
                    help=f"pause between calls (default {scryfall.DEFAULT_DELAY})")
     p.set_defaults(fn=cmd_find)
